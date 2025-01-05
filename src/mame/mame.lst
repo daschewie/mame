@@ -9,6 +9,9 @@
 
 ******************************************************************************/
 
+@source:f256/f256.cpp
+f256k
+
 @source:access/acvirus.cpp
 virusa                          // (c) 1997 Access GmbH
 virusb                          // (c) 1999 Access GmbH
