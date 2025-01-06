@@ -18,7 +18,9 @@ protected:
 
 private:
     required_device<cpu_device> m_maincpu;
+	//required_device<screen_device> m_screen;
     void program_map(address_map &map);
+
 };
 
 #endif // MAME_F256_F256_H
