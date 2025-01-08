@@ -123,14 +123,14 @@ void f256_state::mem_w(offs_t offset, u8 data)
 {
     // find which slot to write
     uint8_t mmu = m_ram->read(0) & 3;
-    uint8_t slot = (offset - 0x10) >> 13;
-    uint16_t laddr = (offset - 0x10) & 0x1FFF;
+    uint8_t slot = (offset + 0x10) >> 13;
+    uint16_t laddr = (offset + 0x10) & 0x1FFF;
 
     uint8_t fslot = mmu_lut[mmu * 8 + slot];
     if (fslot < 0x40)
     {
         offs_t address = (fslot << 13) + laddr;
-        m_ram->write(address + 0x10, data);
+        m_ram->write(address, data);
     }
 }
 
