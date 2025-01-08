@@ -2,19 +2,19 @@
 #include "f256.h"
 
 #include "cpu/m6502/w65c02.h"
-//#include "screen.h"
+#include "tiny_vicky.h"
 //#include "sound/sn76496.h"
 
 f256_state::f256_state(const machine_config &mconfig, device_type type, const char *tag) :
-    driver_device(mconfig, type, tag),
-    m_maincpu(*this, MAINCPU_TAG),
-    m_ram(*this, RAM_TAG),
-    m_rom(*this, ROM_TAG)
+    driver_device(mconfig, type, tag)
+    , m_maincpu(*this, MAINCPU_TAG)
+    , m_ram(*this, RAM_TAG)
+    , m_rom(*this, ROM_TAG)
     // m_pia_0(*this, "pia0"),
     // m_pia_1(*this, "pia1"),
     // m_dac(*this, "dac"),
     // m_sbs(*this, "sbs"),
-    //m_screen(*this, "screen")
+    , m_screen(*this, SCREEN_TAG)
     // m_floating(*this, "floating"),
     // m_rs232(*this, RS232_TAG),
     // m_vhd_0(*this, "vhd0"),
@@ -35,7 +35,14 @@ void f256_state::f256k(machine_config &config)
 {
     W65C02(config, m_maincpu, MASTER_CLOCK/4);
     RAM(config, m_ram).set_default_size("512k").set_default_value(0x0);
+    SCREEN(config, m_screen, SCREEN_TYPE_RASTER);
     m_maincpu->set_addrmap(AS_PROGRAM, &f256_state::program_map);
+    m_screen->set_refresh_hz(60); // Refresh rate (e.g., 60Hz)
+    m_screen->set_size(800,600);
+    m_screen->set_visarea(0, 640, 0, 480);
+    m_screen->set_screen_update(FUNC(f256_state::screen_update));
+
+    m_video.set_videoram(m_ram->pointer());
 }
 
 /*
@@ -45,7 +52,6 @@ void f256_state::f256k(machine_config &config)
     $10:0000 - $13:FFFF	Expansion Memory
     $14:0000 - $1F:FFFF	Reserved
 */
-
 void f256_state::program_map(address_map &map) {
     // the address range 0:F
     // 0: LUT Edit $80 allows writing to 8 to F, LUT Select 0 to 3
@@ -156,6 +162,7 @@ void f256_state::device_start()
 {
 	driver_device::device_start();
     reset_mmu();
+    m_video.start();
 }
 
 //-------------------------------------------------
@@ -170,6 +177,11 @@ void f256_state::device_reset()
 static void construct_ioport_f256k(device_t &owner, ioport_list &portlist, std::ostream &errorbuf)
 {
 
+}
+
+uint32_t f256_state::screen_update(screen_device &screen, bitmap_rgb32 &bitmap, const rectangle &cliprect)
+{
+    return m_video.screen_update(screen, bitmap, cliprect);
 }
 
 ROM_START(f256k)
