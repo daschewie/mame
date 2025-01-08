@@ -40,7 +40,7 @@ void f256_state::f256k(machine_config &config)
     m_screen->set_refresh_hz(60); // Refresh rate (e.g., 60Hz)
     m_screen->set_size(800,600);
     m_screen->set_visarea(0, 640, 0, 480);
-    m_screen->set_screen_update(FUNC(f256_state::screen_update));
+    m_screen->set_screen_update(m_video, FUNC(tiny_vicky_video_device::screen_update));
 
     m_video.set_videoram(m_ram->pointer());
 }
@@ -177,11 +177,6 @@ void f256_state::device_reset()
 static void construct_ioport_f256k(device_t &owner, ioport_list &portlist, std::ostream &errorbuf)
 {
 
-}
-
-uint32_t f256_state::screen_update(screen_device &screen, bitmap_rgb32 &bitmap, const rectangle &cliprect)
-{
-    return m_video.screen_update(screen, bitmap, cliprect);
 }
 
 ROM_START(f256k)
