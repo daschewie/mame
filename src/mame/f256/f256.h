@@ -10,7 +10,12 @@
 #define MASTER_CLOCK        (XTAL(25'175'000))
 #define MAINCPU_TAG                 "maincpu"
 #define RAM_TAG                     "ram"
+#define IOPAGE0_TAG                 "iopage0"
+#define IOPAGE1_TAG                 "iopage1"
+#define IOPAGE2_TAG                 "iopage2"
+#define IOPAGE3_TAG                 "iopage3"
 #define ROM_TAG                     "rom"
+#define FONT_TAG                    "font"
 #define FLASH_TAG                   "flash"
 #define VICKY_VIDEO_TAG             "vicky"
 #define SCREEN_TAG                  "screen"
@@ -19,6 +24,7 @@ class f256_state : public driver_device
 {
 public:
 	f256_state(const machine_config &mconfig, device_type type, const char *tag);
+	~f256_state();
     void f256k(machine_config &config);
 
 protected:
@@ -29,12 +35,16 @@ protected:
 private:
     required_device<cpu_device> m_maincpu;
 	required_device<ram_device> m_ram;
+	required_device<ram_device> m_iopage0, m_iopage1, m_iopage2, m_iopage3;
 	required_memory_region m_rom;
+	required_memory_region m_font;
 	required_device<screen_device> m_screen;
 
 	tiny_vicky_video_device m_video;
 
     void program_map(address_map &map);
+	void data_map(address_map &map);
+
 	uint8_t mmu_lut[32];
 	void reset_mmu();
 	u8   lut_r(offs_t offset);
