@@ -45,7 +45,7 @@ uint32_t tiny_vicky_video_device::screen_update(screen_device &screen, bitmap_rg
 
             // Clear the screen (fill with black)
             //bitmap.fill(rgb_t::black(), cliprect);
-            for (uint16_t y = 0; y < 640; y++)
+            for (uint16_t y = 0; y < 480; y++)
             {
                 // border color can change during painting the screen
                 if (display_border)

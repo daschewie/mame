@@ -5,6 +5,10 @@
 
 #include "machine/ram.h"
 #include "screen.h"
+#include "machine/bq4847.h"
+#include "machine/6522via.h"
+#include "sound/sn76496.h"
+#include "utf8.h"
 #include "tiny_vicky.h"
 
 #define MASTER_CLOCK        (XTAL(25'175'000))
@@ -39,6 +43,14 @@ private:
 	required_memory_region m_rom;
 	required_memory_region m_font;
 	required_device<screen_device> m_screen;
+	required_device<bq4802_device> m_rtc;
+	required_ioport_array<16> m_keyboard; // the number 16 will require 16 COL
+	required_device<via6522_device> m_via6522_0;
+	required_device<via6522_device> m_via6522_1;
+	optional_ioport m_joy1;
+	optional_ioport m_joy2;
+
+	required_device<sn76489_device> m_sn;
 
 	tiny_vicky_video_device m_video;
 
@@ -53,7 +65,22 @@ private:
 	void mem_w(offs_t offset, u8 data);
 
 	// screen update
-    uint32_t screen_update(screen_device &screen, bitmap_rgb32 &bitmap, const rectangle &cliprect);
+	void rtc_interrupt_handler(int state);
+	uint8_t m_interrupt_reg[3] = { 0, 0 ,0};
+
+	// VIA0 - Atari joystick functions
+	u8 via0_system_porta_r();
+	u8 via0_system_portb_r();
+	void via0_system_porta_w(u8 value);
+	void via0_system_portb_w(u8 value);
+	void via0_ca2_write(u8 value);
+	void via0_cb2_write(u8 value);
+
+	// VIA1 - Keyboard functions
+	//u8 via1_system_porta_r();
+	//u8 via1_system_portb_r();
+	// void via1_system_porta_w(u8 value);
+	// void via1_system_portb_w(u8 value);
 };
 
 #endif // MAME_F256_F256_H
