@@ -4,6 +4,24 @@
 #include "machine/ram.h"
 #include "screen.h"
 
+DEFINE_DEVICE_TYPE(TINY_VICKY, tiny_vicky_video_device, "tiny_vicky", "F256K Tiny Vicky")
+
+tiny_vicky_video_device::tiny_vicky_video_device(const machine_config &mconfig, device_type type, const char *tag, device_t *owner, uint32_t clock):
+    device_t(mconfig, type, tag, owner, clock)
+    , m_irq_handler(*this)
+{
+
+}
+tiny_vicky_video_device::tiny_vicky_video_device(const machine_config &mconfig, const char *tag, device_t *owner, uint32_t clock):
+    tiny_vicky_video_device(mconfig, TINY_VICKY, tag, owner, clock)
+{
+
+}
+// tiny_vicky_video_device::tiny_vicky_video_device() :
+//     ,m_irq_handler(*this)
+// {
+
+// }
 rgb_t tiny_vicky_video_device::get_text_lut(uint8_t color_index, bool fg, bool gamma)
 {
     uint8_t red =   iopage0_ptr[(fg ? 0x1800 : 0x1840) + color_index * 4];
@@ -27,6 +45,7 @@ uint32_t tiny_vicky_video_device::screen_update(screen_device &screen, bitmap_rg
         if (mcr != 0 && (mcr & 0x80) == 0)
         {
             // TODO: generate start of frame (SOF) interrupt
+            m_irq_handler(1);
             uint8_t border_reg = iopage0_ptr[0x1004];
             bool display_border = (border_reg & 0x1) > 0;
             bool enable_gamma = (mcr & 0x40) > 0;
@@ -192,5 +211,11 @@ void tiny_vicky_video_device::draw_text(bitmap_rgb32 &bitmap, uint8_t mcr, bool 
             }
         }
     }
+}
+void tiny_vicky_video_device::device_start()
+{
+}
+void tiny_vicky_video_device::device_reset()
+{
 
 }

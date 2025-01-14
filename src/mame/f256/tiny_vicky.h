@@ -1,16 +1,15 @@
 #ifndef MAME_F256_TINYVICKYVIDEO_H
 #define MAME_F256_TINYVICKYVIDEO_H
 
-#include "emupal.h"
-
 #define CHAR_HEIGHT     8
 #define CHAR_WIDTH      8
 
-class tiny_vicky_video_device
+class tiny_vicky_video_device : public device_t
 {
 public:
-    // construction/destruction
-	tiny_vicky_video_device() = default;
+    tiny_vicky_video_device(const machine_config &mconfig, const char *tag, device_t *owner, uint32_t clock);
+    tiny_vicky_video_device(const machine_config &mconfig, device_type type, const char *tag, device_t *owner, uint32_t clock = 0);
+    //tiny_vicky_video_device() = default;
 
     // screen update
     uint32_t screen_update(screen_device &screen, bitmap_rgb32 &bitmap, const rectangle &cliprect);
@@ -35,10 +34,15 @@ public:
     {
         running = true;
     }
+    auto irq_handler() { return m_irq_handler.bind(); }
 protected:
-
+    // device-level overrides
+	virtual void device_start() override ATTR_COLD;
+	virtual void device_reset() override ATTR_COLD;
+    // virtual void device_add_mconfig(machine_config &config) override;
 private:
     bool running = false;
+    devcb_write_line m_irq_handler;
     uint8_t *videoram_ptr = nullptr; // Pointer to video RAM
     uint8_t *iopage0_ptr = nullptr;  // Pointer to IO Page 0
     uint8_t *iopage1_ptr = nullptr;  // Pointer to IO Page 1
@@ -56,4 +60,5 @@ private:
     void draw_text(bitmap_rgb32 &bitmap, uint8_t mcr, bool enable_gamma, uint8_t brd_x, uint8_t brd_y, uint16_t line, uint16_t x_res, uint16_t y_res);
 };
 
+DECLARE_DEVICE_TYPE(TINY_VICKY, tiny_vicky_video_device)
 #endif

@@ -44,15 +44,12 @@ private:
 	required_memory_region m_font;
 	required_device<screen_device> m_screen;
 	required_device<bq4802_device> m_rtc;
-	required_ioport_array<16> m_keyboard; // the number 16 will require 16 COL
+	required_ioport_array<8> m_keyboard; // the number 16 will require 16 COL
 	required_device<via6522_device> m_via6522_0;
 	required_device<via6522_device> m_via6522_1;
-	optional_ioport m_joy1;
-	optional_ioport m_joy2;
-
 	required_device<sn76489_device> m_sn;
 
-	tiny_vicky_video_device m_video;
+	required_device<tiny_vicky_video_device> m_video;
 
     void program_map(address_map &map);
 	void data_map(address_map &map);
@@ -65,22 +62,35 @@ private:
 	void mem_w(offs_t offset, u8 data);
 
 	// screen update
+	void sof_interrtupt(int state);
 	void rtc_interrupt_handler(int state);
+	void via0_interrupt(int state);
+	void via1_interrupt(int state);
 	uint8_t m_interrupt_reg[3] = { 0, 0 ,0};
+	uint8_t m_interrupt_masks[3] = { 0xFF, 0xFF, 0xFF};
 
 	// VIA0 - Atari joystick functions
 	u8 via0_system_porta_r();
 	u8 via0_system_portb_r();
-	void via0_system_porta_w(u8 value);
-	void via0_system_portb_w(u8 value);
-	void via0_ca2_write(u8 value);
-	void via0_cb2_write(u8 value);
+	void via0_system_porta_w(u8 data);
+	void via0_system_portb_w(u8 data);
+	void via0_ca2_write(u8 data);
+	void via0_cb2_write(u8 data);
 
-	// VIA1 - Keyboard functions
-	//u8 via1_system_porta_r();
-	//u8 via1_system_portb_r();
-	// void via1_system_porta_w(u8 value);
-	// void via1_system_portb_w(u8 value);
+	// VIA1 - Internal Keyboard
+	uint8_t m_via_port_a = 0xFF;
+	uint8_t m_via_port_b = 0xFF;
+
+	u8 via1_system_porta_r();
+	u8 via1_system_portb_r();
+	void via1_system_porta_w(u8 data);
+	void via1_system_portb_w(u8 data);
+	void via1_ca2_write(u8 data);
+	void via1_cb2_write(u8 data);
+
+	// codec
+	uint8_t m_codec[16] = {};
+	TIMER_CALLBACK_MEMBER(codec_done);
 };
 
 #endif // MAME_F256_F256_H
