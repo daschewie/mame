@@ -4,6 +4,20 @@
 #include "cpu/m6502/w65c02.h"
 #include "tiny_vicky.h"
 
+/**
+ *
+ * F256K - WDC65C02 Processor running at 6.25MHz
+ *    512KB RAM managed with slots of 8KB in MMU located at address $0000.  Slots 0 to $3F
+ *    512KB Flash                                                           Slots $40 to $7F
+ *    All I/O are mapped to slot 6 ($C000-$DFFF) - there are 4 I/O maps, switched using address $0001.
+ *    Sound Chips: OPL3, PSG, SN74689, CODEC
+ *    Keyboard: mechanical switch in a matrix - controlled by VIA6522 chip.
+ *    Joysticks: 2 Atari-type ports and 2 S/NES ports
+ *    Mouse: over PS/2 - which can also be used for PS/2 Keyboard
+ *    IEC: Commodore Floppy Drive Controller
+ *
+ */
+
 f256_state::f256_state(const machine_config &mconfig, device_type type, const char *tag) :
     driver_device(mconfig, type, tag)
     , m_maincpu(*this, MAINCPU_TAG)
@@ -33,7 +47,11 @@ f256_state::f256_state(const machine_config &mconfig, device_type type, const ch
 
 
     //, m_irqs(*this, "irqs")
-    , m_sn(*this, "sn76489")
+    , m_sn0(*this, "sn76489_0")
+    , m_sn1(*this, "sn76489_1")
+    , m_opl3(*this, "ymf262")
+    , m_sid0(*this, "sid_0")
+    , m_sid1(*this, "sid_1")
     , m_video(*this, "tiny_vicky")
 
 
@@ -52,7 +70,7 @@ void f256_state::f256k(machine_config &config)
     RAM(config, m_iopage2).set_default_size("8k").set_default_value(0x0);
     RAM(config, m_iopage3).set_default_size("8k").set_default_value(0x0);
     SCREEN(config, m_screen, SCREEN_TYPE_RASTER);
-    BQ4802(config, m_rtc, MASTER_CLOCK / 1000);  // clock in kHz
+    BQ4802(config, m_rtc, MASTER_CLOCK / 1000);  // RTC clock in kHz
 
     m_maincpu->set_addrmap(AS_PROGRAM, &f256_state::program_map);
 
@@ -75,7 +93,7 @@ void f256_state::f256k(machine_config &config)
     // to handle interrupts before the CPU, look into "input_merger_device"
 	//
 
-    MOS6522(config, m_via6522_1, MASTER_CLOCK / 16);  // Keyboard
+    MOS6522(config, m_via6522_1, XTAL(14'318'181)/14); //MASTER_CLOCK / 16);  // Keyboard
     m_via6522_1->readpa_handler().set(FUNC(f256_state::via1_system_porta_r));
 	m_via6522_1->readpb_handler().set(FUNC(f256_state::via1_system_portb_r));
 	m_via6522_1->writepa_handler().set(FUNC(f256_state::via1_system_porta_w));
@@ -84,7 +102,24 @@ void f256_state::f256k(machine_config &config)
     m_via6522_1->cb2_handler().set(FUNC(f256_state::via1_cb2_write));
     m_via6522_1->irq_handler().set(FUNC(f256_state::via1_interrupt));
 
-    SN76489(config, m_sn, MASTER_CLOCK / 4);
+    SN76489(config, m_sn0, MASTER_CLOCK / 4);
+    SN76489(config, m_sn1, MASTER_CLOCK / 4);
+    YMF262(config, m_opl3, MASTER_CLOCK / 4);
+    MOS6581(config, m_sid0, XTAL(14'318'181)/14);
+    MOS6581(config, m_sid1, XTAL(14'318'181)/14);
+
+    SPEAKER(config, "lspeaker").front_left();
+    SPEAKER(config, "rspeaker").front_right();
+    m_sn0->add_route(ALL_OUTPUTS, "lspeaker", 1.00);
+    m_sn1->add_route(ALL_OUTPUTS, "rspeaker", 1.00);
+    m_opl3->add_route(0, "lspeaker", 1.0);
+	m_opl3->add_route(1, "rspeaker", 1.0);
+	m_opl3->add_route(2, "lspeaker", 1.0);
+	m_opl3->add_route(3, "rspeaker", 1.0);
+    m_sid0->add_route(ALL_OUTPUTS, "lspeaker", 1.00);
+    m_sid1->add_route(ALL_OUTPUTS, "rspeaker", 1.00);
+
+
     //set interrupt handler for the RTC
     m_rtc->int_handler().set(FUNC(f256_state::rtc_interrupt_handler));
 }
@@ -136,7 +171,6 @@ u8   f256_state::lut_r(offs_t offset)
             return mmu_lut[(mmu & 0x3) * 8 + (offset-8)];
         }
     }
-
 }
 void f256_state::lut_w(offs_t offset, u8 data)
 {
@@ -183,15 +217,7 @@ u8   f256_state::mem_r(offs_t offset)
                 {
                     case 0:
                         // here we have a number of devices to read
-                        if (
-                            (adj_addr >= 0xC000 && adj_addr < 0xD400) ||  // gamma, mouse graphics, vicky registers, bitmaps, tiles
-                            (adj_addr >= 0xD800 && adj_addr < 0xD880) ||  // text colors
-                            (adj_addr >= 0xD900 && adj_addr < 0xDB00)     // sprite registers
-                           )
-                        {
-                            return m_iopage0->read(adj_addr - 0xC000);
-                        }
-                        else if (adj_addr >= 0xD400 && adj_addr < 0xD580)
+                        if (adj_addr >= 0xD400 && adj_addr < 0xD580)
                         {
                             // SID
                         }
@@ -201,7 +227,7 @@ u8   f256_state::mem_r(offs_t offset)
                         }
                         else if (adj_addr >= 0xD600 && adj_addr < 0xD620)
                         {
-                            // PSG
+                            // PSG - left channel D600, right channel D610 - both D608
                         }
                         else if (adj_addr >= 0xD620 && adj_addr < 0xD630)
                         {
@@ -215,6 +241,50 @@ u8   f256_state::mem_r(offs_t offset)
                         else if (adj_addr >= 0xD640 && adj_addr < 0xD64F)
                         {
                             // PS2
+                            switch(adj_addr - 0xD640)
+                            {
+                                case 0:
+                                case 1:
+                                    return m_ps2[adj_addr - 0xD640];
+                                case 2:
+                                {
+                                    // Read from the keyboard fifo
+                                    if (kbPacketCntr > kbQLen)
+                                    {
+                                        return 0;
+                                    }
+                                    uint8_t kbval = kbFifo[kbPacketCntr++];
+                                    if (kbPacketCntr == kbQLen)
+                                    {
+                                        kbPacketCntr = 0;
+                                        kbQLen = 0;
+                                        memset(kbFifo, 0, 6);
+                                    }
+                                    return kbval;
+                                }
+                                case 3:
+                                {
+                                    // Read from the mouse fifo
+                                    if (msPacketCntr> msQLen)
+                                    {
+                                        return 0;
+                                    }
+                                    uint8_t msval = msFifo[msPacketCntr++];
+                                    if (msPacketCntr == msQLen)
+                                    {
+                                        msPacketCntr = 0;
+                                        msQLen = 0;
+                                        memset(msFifo, 0, 3);
+                                    }
+                                    return msval;
+                                }
+                                case 4:
+                                    K_AK = false;
+                                    M_AK = false;
+                                    return ((K_AK ? 0x80:0) + (M_AK ? 0x20 : 0) + (msQLen == 0 ? 2 : 0) + (kbQLen == 0? 1 : 0));
+                            }
+
+                            return m_ps2[adj_addr - 0xD640];
                         }
                         else if (adj_addr >= 0xD650 && adj_addr < 0xD660)
                         {
@@ -242,11 +312,11 @@ u8   f256_state::mem_r(offs_t offset)
                                 case 0xD667:
                                     return 0;
                                 case 0xD668:
-                                    return 0; // int_edge_0
+                                    return m_interrupt_edge[0]; // int_edge_0
                                 case 0xD669:
-                                    return 0; // int_edge_1
+                                    return m_interrupt_edge[1]; // int_edge_1
                                 case 0xD66A:
-                                    return 0; // int_edge_2
+                                    return m_interrupt_edge[2]; // int_edge_2
                                 case 0xD66B:
                                     return 0;
                                 case 0xD66C:
@@ -296,7 +366,7 @@ u8   f256_state::mem_r(offs_t offset)
                             }
 
                         }
-                        else if (adj_addr >= 0xD800 && adj_addr < 0xD8C0)
+                        else if (adj_addr >= 0xD880 && adj_addr < 0xD8C0)
                         {
                             // NES
                             return 0xFF;
@@ -333,7 +403,14 @@ u8   f256_state::mem_r(offs_t offset)
                         {
                             // DMA
                         }
-                        return 0;
+                        // Stick everything else in Vicky
+                            // (adj_addr >= 0xC000 && adj_addr < 0xD400) ||  // gamma, mouse graphics, vicky registers, bitmaps, tiles
+                            // (adj_addr >= 0xD800 && adj_addr < 0xD880) ||  // text colors
+                            // (adj_addr >= 0xD900 && adj_addr < 0xDB00)     // sprite registers
+                        else
+                        {
+                            return m_iopage0->read(adj_addr - 0xC000);
+                        }
                         break;
                     case 1:
                         return m_iopage1->read(adj_addr - 0xC000);
@@ -380,15 +457,7 @@ void f256_state::mem_w(offs_t offset, u8 data)
                 {
                     case 0:
                         // here we have a number of devices to write
-                        if (
-                            (adj_addr >= 0xC000 && adj_addr < 0xD400) ||  // gamma, mouse graphics, vicky registers, bitmaps, tiles
-                            (adj_addr >= 0xD800 && adj_addr < 0xD880) ||  // text colors
-                            (adj_addr >= 0xD900 && adj_addr < 0xDB00)     // sprite registers
-                           )
-                        {
-                            m_iopage0->write(adj_addr - 0xC000, data);
-                        }
-                        else if (adj_addr >= 0xD400 && adj_addr < 0xD580)
+                        if (adj_addr >= 0xD400 && adj_addr < 0xD580)
                         {
                             // SID
                         }
@@ -405,10 +474,11 @@ void f256_state::mem_w(offs_t offset, u8 data)
                             // Codec
                             uint16_t base = adj_addr-0xD620;
                             m_codec[base] = data;
+                            // the program is telling the codec to start
                             if ((base == 2) && ((data & 1) == 1))
                             {
                                 // start a timer that will reset the value to zero
-                                this->machine().scheduler().timer_set(attotime::from_double(0.2), timer_expired_delegate(FUNC(f256_state::codec_done), this), 1);   // timer_alloc(timer_expired_delegate(FUNC(f256_state::timer), this));
+                                this->machine().scheduler().timer_set(attotime::from_msec(100), timer_expired_delegate(FUNC(f256_state::codec_done), this), 1);   // timer_alloc(timer_expired_delegate(FUNC(f256_state::timer), this));
                             }
                         }
                         else if (adj_addr >= 0xD630 && adj_addr < 0xD640)
@@ -417,7 +487,42 @@ void f256_state::mem_w(offs_t offset, u8 data)
                         }
                         else if (adj_addr >= 0xD640 && adj_addr < 0xD64F)
                         {
-                            // PS2
+                            // PS/2 Keyboard
+                            uint16_t delta = adj_addr-0xD640;
+                            m_ps2[delta] = data;
+                            // Only addresses 0 and 1 are writable
+                            if (delta == 0)
+                            {
+                                switch (data)
+                                {
+                                    case 0:
+                                        if (isK_WR)
+                                        {
+                                            // write out the byte in data[1] to keyboard
+                                            isK_WR = false;
+                                            K_AK = true;
+                                        }
+                                        if (isM_WR)
+                                        {
+                                            // write out the byte in data[1] to mouse
+                                            isM_WR = false;
+                                            M_AK = true;
+                                        }
+                                        break;
+                                    case 2:
+                                        isK_WR = true;
+                                        break;
+                                    case 8:
+                                        isM_WR = true;
+                                        break;
+                                    case 0x10: // clear keyboard fifo
+                                        memset(kbFifo, 0, 6);
+                                        break;
+                                    case 0x20: // clear mouse fifo
+                                        memset(msFifo, 0, 3);
+                                        break;
+                                }
+                            }
                         }
                         else if (adj_addr >= 0xD650 && adj_addr < 0xD660)
                         {
@@ -472,12 +577,15 @@ void f256_state::mem_w(offs_t offset, u8 data)
                                     break;
                                 case 0xD668:
                                     // int_edge_0
+                                    m_interrupt_edge[0] = data;
                                     break;
                                 case 0xD669:
                                     // int_edge_1
+                                    m_interrupt_edge[1] = data;
                                     break;
                                 case 0xD66A:
                                     // int_edge_2
+                                    m_interrupt_edge[2] = data;
                                     break;
                                 case 0xD66B:
                                     break;
@@ -494,13 +602,17 @@ void f256_state::mem_w(offs_t offset, u8 data)
                                     break;
 
                             }
+                            if (m_interrupt_reg[0] == 0 && m_interrupt_reg[1] == 0 && m_interrupt_reg[2] == 0)
+                            {
+                                m_maincpu->set_input_line(M6502_IRQ_LINE, CLEAR_LINE);
+                            }
                         }
                         else if (adj_addr >= 0xD690 && adj_addr < 0xD6A0)
                         {
                             // RTC
                             m_rtc->write(adj_addr - 0xDC90, data);
                         }
-                        else if (adj_addr >= 0xD800 && adj_addr < 0xD8C0)
+                        else if (adj_addr >= 0xD880 && adj_addr < 0xD8C0)
                         {
                             // NES - only address 0xD8800 is writable
                         }
@@ -526,6 +638,15 @@ void f256_state::mem_w(offs_t offset, u8 data)
                         {
                             // DMA
                         }
+                        // stick everything else in Vicky
+                            // (adj_addr >= 0xC000 && adj_addr < 0xD400) ||  // gamma, mouse graphics, vicky registers, bitmaps, tiles
+                            // (adj_addr >= 0xD800 && adj_addr < 0xD880) ||  // text colors
+                            // (adj_addr >= 0xD900 && adj_addr < 0xDB00)     // sprite registers
+                        else
+                        {
+                            m_iopage0->write(adj_addr - 0xC000, data);
+                        }
+
                         break;
                     case 1:
                         m_iopage1->write(adj_addr - 0xC000, data);
@@ -587,7 +708,7 @@ void f256_state::device_start()
 
     m_rtc->set_current_time(stnow);
 
-        // Initialize the VIA0
+    // Initialize the VIA0
     m_via6522_0->write(via6522_device::VIA_DDRB, 0xFF);  // DDRB
     m_via6522_0->write(via6522_device::VIA_DDRA, 0xFF);  // DDRA
     m_via6522_0->write(via6522_device::VIA_PB,   0xFF);  // JOYSTICK 2
@@ -595,11 +716,7 @@ void f256_state::device_start()
     m_via6522_0->write(via6522_device::VIA_DDRB, 0);     // DDRB
     m_via6522_0->write(via6522_device::VIA_DDRA, 0);     // DDRA
 
-    // // Initialize the VIA0
-    // m_via6522_1->write(via6522_device::VIA_DDRB, 0xFF);  // DDRB
-    // m_via6522_1->write(via6522_device::VIA_DDRA, 0xFF);  // DDRA
-    // m_via6522_1->write(via6522_device::VIA_PB,   0xFF);  // JOYSTICK 2
-    // m_via6522_1->write(via6522_device::VIA_PA,   0xFF);  // JOYSTICK 1
+    // Initialize the VIA1
     m_via6522_1->write(via6522_device::VIA_DDRB, 0);     // DDRB
     m_via6522_1->write(via6522_device::VIA_DDRA, 0);     // DDRA
 }
@@ -613,9 +730,16 @@ void f256_state::device_reset()
     reset_mmu();
     m_via6522_0->reset();
 	m_via6522_1->reset();
-
+    m_sid0->reset();
+    m_sid1->reset();
+    m_sn0->reset();
+    m_sn1->reset();
+    m_opl3->reset();
 }
 
+//-------------------------------------------------
+//  Interrupts
+//-------------------------------------------------
 void f256_state::sof_interrtupt(int state)
 {
     if (state && ((m_interrupt_masks[1] & 0x01) == 0))
@@ -648,11 +772,14 @@ void f256_state::via1_interrupt(int state)
     // if a keyboard button is pressed, set the VIA1 interrupt if the mask allows if
     if (state && ((m_interrupt_masks[1] & 0x40) == 0))
     {
-        m_interrupt_reg[1] &= 0x40;
-        m_maincpu->set_input_line(M6502_IRQ_LINE, 1);
+        m_interrupt_reg[1] |= 0x40;
+        m_maincpu->set_input_line(M6502_IRQ_LINE, state);
     }
 }
 
+//-------------------------------------------------
+//  VIA0 - JOYSTICK
+//-------------------------------------------------
 u8 f256_state::via0_system_porta_r()
 {
     u8 data = ioport("JOY2")->read();
@@ -674,7 +801,6 @@ void f256_state::via0_system_portb_w(u8 data)
 {
     //logerror("VIA #0 Port B Write: %02X\n", data);
     // writing should only be done if DDR allows it
-    //ioport("JOY1")->write(data);
 }
 void f256_state::via0_ca2_write(u8 value)
 {
@@ -686,7 +812,6 @@ void f256_state::via0_cb2_write(u8 value)
     //logerror("Write to VIA0 - CB2 %02X\n", value);
     m_via6522_0->write_cb2(value);
 }
-
 
 // TODO: check the ports
 static INPUT_PORTS_START(f256k_joysticks)
@@ -709,66 +834,73 @@ static INPUT_PORTS_START(f256k_joysticks)
     PORT_BIT(0x40, IP_ACTIVE_LOW, IPT_BUTTON3)                  PORT_PLAYER(2) PORT_NAME("Atari Joystick P2 Button 3") PORT_CODE(KEYCODE_5_PAD)
 INPUT_PORTS_END
 
+//-------------------------------------------------
+//  VIA1 - F256K Keyboard
+//-------------------------------------------------
 u8 f256_state::via1_system_porta_r()
 {
-    int r[8] = {};
-    int first_non_zero_row = -1;
-    for (int row = 0; row < m_keyboard.size(); row++)
-    {
-        r[row] = ~m_keyboard[row]->read() & ((row==0 || row==6) ? 0x1FF : 0xFF);
-        if (r[row] != 0)
-        {
-            first_non_zero_row = row;
-        }
-    }
-    m_via_port_b = first_non_zero_row != -1 ? ~(1 << first_non_zero_row) : 0xFF;
-    m_via_port_a = first_non_zero_row != -1 ? ~r[first_non_zero_row] : 0xFF;
+    // int r[8] = {};
+    // int first_non_zero_row = -1;
+    // for (int row = 0; row < m_keyboard.size(); row++)
+    // {
+    //     r[row] = ~m_keyboard[row]->read() & ((row==0 || row==6) ? 0x1FF : 0xFF);
+    //     if (r[row] != 0)
+    //     {
+    //         first_non_zero_row = row;
+    //     }
+    // }
+    // //m_via_port_b = first_non_zero_row != -1 ? ~(1 << first_non_zero_row) : 0xFF;
+    // m_via_port_a = first_non_zero_row != -1 ? ~r[first_non_zero_row] : 0xFF;
     //logerror("VIA1-A READ: R0: %02X, R1: %02X R2: %02X, R3: %02X R4: %02X, R5: %02X R6: %02X, R7: %02X A: %02X, B: %02X\n",
     //  r[0], r[1],
     //  r[2], r[3],
     //  r[4], r[5],
     //  r[6], r[7],
     //  m_via_port_a, m_via_port_b);
-    m_via6522_1->write_pb(m_via_port_b);
+    // m_via6522_1->write_pb(m_via_port_b);
     return m_via_port_a;
 }
 u8 f256_state::via1_system_portb_r()
 {
-    int r[8] = {};
-    int first_non_zero_row = -1;
-    for (int row = 0; row < m_keyboard.size(); row++)
+    // for (int row = 0; row < m_keyboard.size(); row++)
+    // {
+    //     if (BIT(m_via_port_a, row) == 0)
+    //     {
+    //         uint16_t v = ~m_keyboard[row]->read() & ((row == 0 || row == 6) ? 0x1FF: 0xFF);
+    //         if (v != 0)
+    //         {
+    //             m_via_port_b = m_keyboard[row]->read();
+    //             break;
+    //         }
+
+    //     }
+    // }
+    m_via_port_b = 0xff;
+
+    for (int i = 0; i < 8; i++)
     {
-        r[row] = ~m_keyboard[row]->read() & ((row==0 || row==6) ? 0x1FF : 0xFF);
-        if (r[row] != 0)
+        if (BIT(m_via_port_a,i) == 0)
         {
-            first_non_zero_row = row;
+            m_via_port_b &= m_keyboard[i]->read();
         }
     }
-    m_via_port_b = first_non_zero_row != -1 ? ~(1 << first_non_zero_row) : 0xFF;
-    m_via_port_a = first_non_zero_row != -1 ? ~r[first_non_zero_row] : 0xFF;
-    //logerror("VIA1-B READ: R0: %02X, R1: %02X R2: %02X, R3: %02X R4: %02X, R5: %02X R6: %02X, R7: %02X A: %02X, B: %02X\n",
-    //  r[0], r[1],
-    //  r[2], r[3],
-    //  r[4], r[5],
-    //  r[6], r[7],
-    //  m_via_port_a, m_via_port_b);
-    m_via6522_1->write_pb(m_via_port_b);
+    logerror("\t\t\tRead from VIA1 PORT B: %02X\n", m_via_port_b);
+    //m_via6522_1->write_pb(m_via_port_b);
     return m_via_port_b;
 }
 // Read keyboard as rows
 void f256_state::via1_system_porta_w(u8 data)
 {
     m_via_port_a = data;
-    //m_via6522_1->write_pa(data);
-    logerror("Write to VIA1 PORT A: %02X - PORT B: %02X\n", data, m_via_port_b);
+    m_via6522_1->write_pa(data);
+    logerror("Write to VIA1 PORT A: %02X\n", data);
 }
 // Read keyboard as columns
 void f256_state::via1_system_portb_w(u8 data)
 {
-
     m_via_port_b = data;
-    //m_via6522_1->write_pb(data);
-    logerror("Write to VIA1 PORT B: %02X - PORT A: %02X\n", data, m_via_port_a);
+    m_via6522_1->write_pb(data);
+    logerror("Write to VIA1 PORT B: %02X\n", data);
 }
 void f256_state::via1_ca2_write(u8 value)
 {
@@ -790,83 +922,83 @@ static INPUT_PORTS_START(f256k)
     PORT_BIT(0x01, IP_ACTIVE_LOW, IPT_KEYBOARD) PORT_NAME("DEL") PORT_CODE(KEYCODE_DEL)
     PORT_BIT(0x02, IP_ACTIVE_LOW, IPT_KEYBOARD) PORT_NAME("ENTER") PORT_CODE(KEYCODE_ENTER)
     PORT_BIT(0x04, IP_ACTIVE_LOW, IPT_KEYBOARD) PORT_NAME(UTF8_LEFT) PORT_CODE(KEYCODE_LEFT)
-    PORT_BIT(0x08, IP_ACTIVE_LOW, IPT_KEYBOARD) PORT_NAME(UTF8_UP) PORT_CODE(KEYCODE_UP)
+    PORT_BIT(0x08, IP_ACTIVE_LOW, IPT_KEYBOARD) PORT_NAME("F7") PORT_CODE(KEYCODE_F7)
     PORT_BIT(0x10, IP_ACTIVE_LOW, IPT_KEYBOARD) PORT_NAME("F1") PORT_CODE(KEYCODE_F1)
     PORT_BIT(0x20, IP_ACTIVE_LOW, IPT_KEYBOARD) PORT_NAME("F3") PORT_CODE(KEYCODE_F3)
     PORT_BIT(0x40, IP_ACTIVE_LOW, IPT_KEYBOARD) PORT_NAME("F5") PORT_CODE(KEYCODE_F5)
-    PORT_BIT(0x80, IP_ACTIVE_LOW, IPT_KEYBOARD) PORT_NAME("F7") PORT_CODE(KEYCODE_F7)
+    PORT_BIT(0x80, IP_ACTIVE_LOW, IPT_KEYBOARD) PORT_NAME(UTF8_UP) PORT_CODE(KEYCODE_UP)
     PORT_BIT(0x100, IP_ACTIVE_LOW, IPT_KEYBOARD) PORT_NAME(UTF8_DOWN) PORT_CODE(KEYCODE_DOWN)
 
     PORT_START("ROW1")
-    PORT_BIT(0x01, IP_ACTIVE_LOW, IPT_KEYBOARD) PORT_NAME("3") PORT_CODE(KEYCODE_3) PORT_CHAR('3')
-    PORT_BIT(0x02, IP_ACTIVE_LOW, IPT_KEYBOARD) PORT_NAME("W") PORT_CODE(KEYCODE_W) PORT_CHAR('W')
-    PORT_BIT(0x04, IP_ACTIVE_LOW, IPT_KEYBOARD) PORT_NAME("A") PORT_CODE(KEYCODE_A) PORT_CHAR('A')
-    PORT_BIT(0x08, IP_ACTIVE_LOW, IPT_KEYBOARD) PORT_NAME("L SHIFT") PORT_CODE(KEYCODE_LSHIFT)
+    PORT_BIT(0x01, IP_ACTIVE_LOW, IPT_KEYBOARD) PORT_NAME("3") PORT_CODE(KEYCODE_3)
+    PORT_BIT(0x02, IP_ACTIVE_LOW, IPT_KEYBOARD) PORT_NAME("W") PORT_CODE(KEYCODE_W)
+    PORT_BIT(0x04, IP_ACTIVE_LOW, IPT_KEYBOARD) PORT_NAME("A") PORT_CODE(KEYCODE_A)
+    PORT_BIT(0x08, IP_ACTIVE_LOW, IPT_KEYBOARD) PORT_NAME("4") PORT_CODE(KEYCODE_4)
     PORT_BIT(0x10, IP_ACTIVE_LOW, IPT_KEYBOARD) PORT_NAME("Z") PORT_CODE(KEYCODE_Z)
     PORT_BIT(0x20, IP_ACTIVE_LOW, IPT_KEYBOARD) PORT_NAME("S") PORT_CODE(KEYCODE_S)
     PORT_BIT(0x40, IP_ACTIVE_LOW, IPT_KEYBOARD) PORT_NAME("E") PORT_CODE(KEYCODE_E)
-    PORT_BIT(0x80, IP_ACTIVE_LOW, IPT_KEYBOARD) PORT_NAME("4") PORT_CODE(KEYCODE_4)
+    PORT_BIT(0x80, IP_ACTIVE_LOW, IPT_KEYBOARD) PORT_NAME("L SHIFT") PORT_CODE(KEYCODE_LSHIFT)
 
     PORT_START("ROW2")
     PORT_BIT(0x01, IP_ACTIVE_LOW, IPT_KEYBOARD) PORT_NAME("5") PORT_CODE(KEYCODE_5)
     PORT_BIT(0x02, IP_ACTIVE_LOW, IPT_KEYBOARD) PORT_NAME("R") PORT_CODE(KEYCODE_R)
     PORT_BIT(0x04, IP_ACTIVE_LOW, IPT_KEYBOARD) PORT_NAME("D") PORT_CODE(KEYCODE_D)
-    PORT_BIT(0x08, IP_ACTIVE_LOW, IPT_KEYBOARD) PORT_NAME("X") PORT_CODE(KEYCODE_X)
+    PORT_BIT(0x08, IP_ACTIVE_LOW, IPT_KEYBOARD) PORT_NAME("6") PORT_CODE(KEYCODE_6)
     PORT_BIT(0x10, IP_ACTIVE_LOW, IPT_KEYBOARD) PORT_NAME("C") PORT_CODE(KEYCODE_C)
     PORT_BIT(0x20, IP_ACTIVE_LOW, IPT_KEYBOARD) PORT_NAME("F") PORT_CODE(KEYCODE_F)
     PORT_BIT(0x40, IP_ACTIVE_LOW, IPT_KEYBOARD) PORT_NAME("T") PORT_CODE(KEYCODE_T)
-    PORT_BIT(0x80, IP_ACTIVE_LOW, IPT_KEYBOARD) PORT_NAME("6") PORT_CODE(KEYCODE_6)
+    PORT_BIT(0x80, IP_ACTIVE_LOW, IPT_KEYBOARD) PORT_NAME("X") PORT_CODE(KEYCODE_X)
 
     PORT_START("ROW3")
     PORT_BIT(0x01, IP_ACTIVE_LOW, IPT_KEYBOARD) PORT_NAME("7") PORT_CODE(KEYCODE_7)
     PORT_BIT(0x02, IP_ACTIVE_LOW, IPT_KEYBOARD) PORT_NAME("Y") PORT_CODE(KEYCODE_Y)
     PORT_BIT(0x04, IP_ACTIVE_LOW, IPT_KEYBOARD) PORT_NAME("G") PORT_CODE(KEYCODE_G)
-    PORT_BIT(0x08, IP_ACTIVE_LOW, IPT_KEYBOARD) PORT_NAME("V") PORT_CODE(KEYCODE_V)
+    PORT_BIT(0x08, IP_ACTIVE_LOW, IPT_KEYBOARD) PORT_NAME("8") PORT_CODE(KEYCODE_8)
     PORT_BIT(0x10, IP_ACTIVE_LOW, IPT_KEYBOARD) PORT_NAME("B") PORT_CODE(KEYCODE_B)
     PORT_BIT(0x20, IP_ACTIVE_LOW, IPT_KEYBOARD) PORT_NAME("H") PORT_CODE(KEYCODE_H)
     PORT_BIT(0x40, IP_ACTIVE_LOW, IPT_KEYBOARD) PORT_NAME("U") PORT_CODE(KEYCODE_U)
-    PORT_BIT(0x80, IP_ACTIVE_LOW, IPT_KEYBOARD) PORT_NAME("8") PORT_CODE(KEYCODE_8)
+    PORT_BIT(0x80, IP_ACTIVE_LOW, IPT_KEYBOARD) PORT_NAME("V") PORT_CODE(KEYCODE_V)
 
     PORT_START("ROW4")
     PORT_BIT(0x01, IP_ACTIVE_LOW, IPT_KEYBOARD) PORT_NAME("9") PORT_CODE(KEYCODE_9)
     PORT_BIT(0x02, IP_ACTIVE_LOW, IPT_KEYBOARD) PORT_NAME("I") PORT_CODE(KEYCODE_I)
     PORT_BIT(0x04, IP_ACTIVE_LOW, IPT_KEYBOARD) PORT_NAME("J") PORT_CODE(KEYCODE_J)
-    PORT_BIT(0x08, IP_ACTIVE_LOW, IPT_KEYBOARD) PORT_NAME("N") PORT_CODE(KEYCODE_N)
+    PORT_BIT(0x08, IP_ACTIVE_LOW, IPT_KEYBOARD) PORT_NAME("0") PORT_CODE(KEYCODE_0)
     PORT_BIT(0x10, IP_ACTIVE_LOW, IPT_KEYBOARD) PORT_NAME("M") PORT_CODE(KEYCODE_M)
     PORT_BIT(0x20, IP_ACTIVE_LOW, IPT_KEYBOARD) PORT_NAME("K") PORT_CODE(KEYCODE_K)
     PORT_BIT(0x40, IP_ACTIVE_LOW, IPT_KEYBOARD) PORT_NAME("O") PORT_CODE(KEYCODE_O)
-    PORT_BIT(0x80, IP_ACTIVE_LOW, IPT_KEYBOARD) PORT_NAME("0") PORT_CODE(KEYCODE_0)
+    PORT_BIT(0x80, IP_ACTIVE_LOW, IPT_KEYBOARD) PORT_NAME("N") PORT_CODE(KEYCODE_N)
 
     PORT_START("ROW5")
-    PORT_BIT(0x01, IP_ACTIVE_LOW, IPT_KEYBOARD) PORT_NAME("+") PORT_CODE(KEYCODE_EQUALS)
+    PORT_BIT(0x01, IP_ACTIVE_LOW, IPT_KEYBOARD) PORT_NAME("-") PORT_CODE(KEYCODE_MINUS)
     PORT_BIT(0x02, IP_ACTIVE_LOW, IPT_KEYBOARD) PORT_NAME("P") PORT_CODE(KEYCODE_P)
     PORT_BIT(0x04, IP_ACTIVE_LOW, IPT_KEYBOARD) PORT_NAME("L") PORT_CODE(KEYCODE_L)
-    PORT_BIT(0x08, IP_ACTIVE_LOW, IPT_KEYBOARD) PORT_NAME(",") PORT_CODE(KEYCODE_COMMA)
+    PORT_BIT(0x08, IP_ACTIVE_LOW, IPT_KEYBOARD) PORT_NAME("CAPS LOCK") PORT_CODE(KEYCODE_CAPSLOCK)
     PORT_BIT(0x10, IP_ACTIVE_LOW, IPT_KEYBOARD) PORT_NAME(".") PORT_CODE(KEYCODE_STOP)
-    PORT_BIT(0x20, IP_ACTIVE_LOW, IPT_KEYBOARD) PORT_NAME(":") PORT_CODE(KEYCODE_COLON)
-    PORT_BIT(0x40, IP_ACTIVE_LOW, IPT_KEYBOARD) PORT_NAME("@") PORT_CODE(KEYCODE_BACKSLASH)
-    PORT_BIT(0x80, IP_ACTIVE_LOW, IPT_KEYBOARD) PORT_NAME("CAPS LOCK") PORT_CODE(KEYCODE_CAPSLOCK)
+    PORT_BIT(0x20, IP_ACTIVE_LOW, IPT_KEYBOARD) PORT_NAME(";") PORT_CODE(KEYCODE_COLON)
+    PORT_BIT(0x40, IP_ACTIVE_LOW, IPT_KEYBOARD) PORT_NAME("[") PORT_CODE(KEYCODE_OPENBRACE)
+    PORT_BIT(0x80, IP_ACTIVE_LOW, IPT_KEYBOARD) PORT_NAME(",") PORT_CODE(KEYCODE_COMMA)
 
     PORT_START("ROW6")
-    PORT_BIT(0x01, IP_ACTIVE_LOW, IPT_KEYBOARD) PORT_NAME("-") PORT_CODE(KEYCODE_MINUS)
-    PORT_BIT(0x02, IP_ACTIVE_LOW, IPT_KEYBOARD) PORT_NAME("*") PORT_CODE(KEYCODE_ASTERISK)
-    PORT_BIT(0x04, IP_ACTIVE_LOW, IPT_KEYBOARD) PORT_NAME(";") PORT_CODE(KEYCODE_COLON)
-    PORT_BIT(0x08, IP_ACTIVE_LOW, IPT_KEYBOARD) PORT_NAME("/") PORT_CODE(KEYCODE_V)
+    PORT_BIT(0x01, IP_ACTIVE_LOW, IPT_KEYBOARD) PORT_NAME("=") PORT_CODE(KEYCODE_EQUALS)
+    PORT_BIT(0x02, IP_ACTIVE_LOW, IPT_KEYBOARD) PORT_NAME("]") PORT_CODE(KEYCODE_CLOSEBRACE)
+    PORT_BIT(0x04, IP_ACTIVE_LOW, IPT_KEYBOARD) PORT_NAME("'") PORT_CODE(KEYCODE_QUOTE)
+    PORT_BIT(0x08, IP_ACTIVE_LOW, IPT_KEYBOARD) PORT_NAME("HOME") PORT_CODE(KEYCODE_HOME)
     PORT_BIT(0x10, IP_ACTIVE_LOW, IPT_KEYBOARD) PORT_NAME("R SHIFT") PORT_CODE(KEYCODE_C)
     PORT_BIT(0x20, IP_ACTIVE_LOW, IPT_KEYBOARD) PORT_NAME("ALT") PORT_CODE(KEYCODE_LALT) PORT_CODE(KEYCODE_RALT)
     PORT_BIT(0x40, IP_ACTIVE_LOW, IPT_KEYBOARD) PORT_NAME("TAB") PORT_CODE(KEYCODE_TAB)
-    PORT_BIT(0x80, IP_ACTIVE_LOW, IPT_KEYBOARD) PORT_NAME("HOME") PORT_CODE(KEYCODE_HOME)
+    PORT_BIT(0x80, IP_ACTIVE_LOW, IPT_KEYBOARD) PORT_NAME("/") PORT_CODE(KEYCODE_SLASH)
     PORT_BIT(0x100, IP_ACTIVE_LOW, IPT_KEYBOARD) PORT_NAME(UTF8_RIGHT) PORT_CODE(KEYCODE_RIGHT)
 
     PORT_START("ROW7")
     PORT_BIT(0x01, IP_ACTIVE_LOW, IPT_KEYBOARD) PORT_NAME("1") PORT_CODE(KEYCODE_1)
     PORT_BIT(0x02, IP_ACTIVE_LOW, IPT_KEYBOARD) PORT_NAME("BKSP") PORT_CODE(KEYCODE_BACKSPACE)
     PORT_BIT(0x04, IP_ACTIVE_LOW, IPT_KEYBOARD) PORT_NAME("CTRL") PORT_CODE(KEYCODE_LCONTROL)
-    PORT_BIT(0x08, IP_ACTIVE_LOW, IPT_KEYBOARD) PORT_NAME("RUN/STOP") PORT_CODE(KEYCODE_STOP)
+    PORT_BIT(0x08, IP_ACTIVE_LOW, IPT_KEYBOARD) PORT_NAME("2") PORT_CODE(KEYCODE_2)
     PORT_BIT(0x10, IP_ACTIVE_LOW, IPT_KEYBOARD) PORT_NAME("SPACE") PORT_CODE(KEYCODE_SPACE)
     PORT_BIT(0x20, IP_ACTIVE_LOW, IPT_KEYBOARD) PORT_NAME("FOENIX") PORT_CODE(KEYCODE_LWIN)
     PORT_BIT(0x40, IP_ACTIVE_LOW, IPT_KEYBOARD) PORT_NAME("Q") PORT_CODE(KEYCODE_Q)
-    PORT_BIT(0x80, IP_ACTIVE_LOW, IPT_KEYBOARD) PORT_NAME("2") PORT_CODE(KEYCODE_2)
+    PORT_BIT(0x80, IP_ACTIVE_LOW, IPT_KEYBOARD) PORT_NAME("RUN/STOP") PORT_CODE(KEYCODE_STOP)
 INPUT_PORTS_END
 
 ROM_START(f256k)
@@ -890,4 +1022,4 @@ ROM_START(f256k)
 ROM_END
 
 //    YEAR  NAME   PARENT COMPAT  MACHINE    INPUT    CLASS        INIT        COMPANY              FULLNAME                        FLAGS
-COMP( 2024, f256k,    0,      0,    f256k,   f256k,   f256_state, empty_init, "Stefany Allaire", "F256K 8-bit Retro System",      MACHINE_IS_INCOMPLETE | MACHINE_NO_SOUND  )
+COMP( 2024, f256k,    0,      0,    f256k,   f256k,   f256_state, empty_init, "Stefany Allaire", "F256K 8-bit Retro System",      MACHINE_IS_INCOMPLETE  )

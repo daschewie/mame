@@ -17,16 +17,11 @@ tiny_vicky_video_device::tiny_vicky_video_device(const machine_config &mconfig, 
 {
 
 }
-// tiny_vicky_video_device::tiny_vicky_video_device() :
-//     ,m_irq_handler(*this)
-// {
-
-// }
 rgb_t tiny_vicky_video_device::get_text_lut(uint8_t color_index, bool fg, bool gamma)
 {
-    uint8_t red =   iopage0_ptr[(fg ? 0x1800 : 0x1840) + color_index * 4];
+    uint8_t red =   iopage0_ptr[(fg ? 0x1800 : 0x1840) + color_index * 4 + 2];
     uint8_t green = iopage0_ptr[(fg ? 0x1800 : 0x1840) + color_index * 4 + 1];
-    uint8_t blue =  iopage0_ptr[(fg ? 0x1800 : 0x1840) + color_index * 4 + 2];
+    uint8_t blue =  iopage0_ptr[(fg ? 0x1800 : 0x1840) + color_index * 4 ];
     if (gamma)
     {
         blue = iopage0_ptr[blue];
@@ -41,6 +36,11 @@ uint32_t tiny_vicky_video_device::screen_update(screen_device &screen, bitmap_rg
     if (running && iopage0_ptr)
     {
         uint8_t mcr = iopage0_ptr[0x1000];
+        cursor_counter++;
+        if (cursor_counter > cursor_flash_rate *2) 
+        {
+            cursor_counter = 0;
+        }
         // if MCR =0 or MCR bit 7 is set, then video is disabled
         if (mcr != 0 && (mcr & 0x80) == 0)
         {
@@ -69,7 +69,7 @@ uint32_t tiny_vicky_video_device::screen_update(screen_device &screen, bitmap_rg
                 // border color can change during painting the screen
                 if (display_border)
                 {
-                    border_color = rgb_t(iopage0_ptr[0x1005], iopage0_ptr[0x1006], iopage0_ptr[0x1007]);
+                    border_color = rgb_t(iopage0_ptr[0x1007], iopage0_ptr[0x1006], iopage0_ptr[0x1005]);
                 }
 
                 if (y < border_y || y >= 480 - border_y)
@@ -84,7 +84,7 @@ uint32_t tiny_vicky_video_device::screen_update(screen_device &screen, bitmap_rg
                     rgb_t background_color = rgb_t();
                     if (enable_graphics)
                     {
-                        background_color = rgb_t(iopage0_ptr[0x100D], iopage0_ptr[0x100E], iopage0_ptr[0x100F]);
+                        background_color = rgb_t(iopage0_ptr[0x100F], iopage0_ptr[0x100E], iopage0_ptr[0x100D]);
                     }
                     for (int x = 0; x < 640; x++)
                     {
@@ -147,8 +147,9 @@ void tiny_vicky_video_device::draw_text(bitmap_rgb32 &bitmap, uint8_t mcr, bool 
             cursor_flash_rate = 12;
             break;
     }
-    cursor_char = iopage0_ptr[0x1012];
     int screen_x = brd_x;
+    // I'm assuming that if enable_cursor_flash is 0, then the cursor is always visible
+    cursor_visible = enable_cursor && (enable_cursor_flash && (cursor_counter < cursor_flash_rate));
     for (int col = 0; col < txt_cols; col++)
     {
         int x = col * CHAR_WIDTH;
@@ -167,9 +168,9 @@ void tiny_vicky_video_device::draw_text(bitmap_rgb32 &bitmap, uint8_t mcr, bool 
         uint8_t color = iopage3_ptr[offset];
 
         // Display the cursor - this replaces the text character
-        if (cursor_x == col && cursor_y == txt_line && cursor_visible && enable_cursor)
+        if (cursor_x == col && cursor_y == txt_line && cursor_visible)
         {
-            character = cursor_char;
+            character = iopage0_ptr[0x1012];
         }
 
         uint8_t fg_color_index = (color & 0xF0) >> 4;

@@ -54,7 +54,6 @@ private:
     bool enable_cursor_flash = true;
     uint8_t cursor_counter = 0;
     uint8_t cursor_flash_rate = 60;
-    uint8_t cursor_char;
 
     rgb_t get_text_lut(uint8_t color_index, bool fg, bool gamma);
     void draw_text(bitmap_rgb32 &bitmap, uint8_t mcr, bool enable_gamma, uint8_t brd_x, uint8_t brd_y, uint16_t line, uint16_t x_res, uint16_t y_res);

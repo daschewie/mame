@@ -8,8 +8,11 @@
 #include "machine/bq4847.h"
 #include "machine/6522via.h"
 #include "sound/sn76496.h"
+#include "sound/ymopl.h"
+#include "sound/mos6581.h"
 #include "utf8.h"
 #include "tiny_vicky.h"
+#include "speaker.h"
 
 #define MASTER_CLOCK        (XTAL(25'175'000))
 #define MAINCPU_TAG                 "maincpu"
@@ -44,10 +47,11 @@ private:
 	required_memory_region m_font;
 	required_device<screen_device> m_screen;
 	required_device<bq4802_device> m_rtc;
-	required_ioport_array<8> m_keyboard; // the number 16 will require 16 COL
-	required_device<via6522_device> m_via6522_0;
-	required_device<via6522_device> m_via6522_1;
-	required_device<sn76489_device> m_sn;
+	required_ioport_array<8> m_keyboard; // the number 8 will require 8 COL
+	required_device<via6522_device> m_via6522_0, m_via6522_1;
+	required_device<sn76489_device> m_sn0, m_sn1;
+	required_device<ymf262_device> m_opl3;
+	required_device<mos6581_device> m_sid0, m_sid1;
 
 	required_device<tiny_vicky_video_device> m_video;
 
@@ -68,6 +72,7 @@ private:
 	void via1_interrupt(int state);
 	uint8_t m_interrupt_reg[3] = { 0, 0 ,0};
 	uint8_t m_interrupt_masks[3] = { 0xFF, 0xFF, 0xFF};
+	uint8_t m_interrupt_edge[3] = { 0xFF, 0xFF, 0xFF};
 
 	// VIA0 - Atari joystick functions
 	u8 via0_system_porta_r();
@@ -91,6 +96,20 @@ private:
 	// codec
 	uint8_t m_codec[16] = {};
 	TIMER_CALLBACK_MEMBER(codec_done);
+
+	// PS/2
+	uint8_t m_ps2[16] = {};
+	bool isK_WR = false;
+	bool isM_WR = false;
+	bool K_AK = false;
+	bool M_AK = false;
+
+	uint8_t kbPacketCntr = 0;
+	uint8_t msPacketCntr = 0;
+	int kbQLen = 0;
+	int msQLen = 0;
+	uint8_t kbFifo[6] = {};
+	uint8_t msFifo[3] = {};
 };
 
 #endif // MAME_F256_F256_H
