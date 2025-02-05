@@ -52,6 +52,7 @@ f256_state::f256_state(const machine_config &mconfig, device_type type, const ch
     , m_opl3(*this, "ymf262")
     , m_sid0(*this, "sid_0")
     , m_sid1(*this, "sid_1")
+    //, m_sdcard(*this, "sd_card")
     , m_video(*this, "tiny_vicky")
 
 
@@ -81,7 +82,7 @@ void f256_state::f256k(machine_config &config)
     TINY_VICKY(config, m_video, MASTER_CLOCK);
     m_video->irq_handler().set(FUNC(f256_state::sof_interrtupt));
 
-    MOS6522(config, m_via6522_0, MASTER_CLOCK / 16);  // Atari Joysticks
+    MOS6522(config, m_via6522_0, MASTER_CLOCK / 4);  // Atari Joysticks
 	m_via6522_0->readpa_handler().set(FUNC(f256_state::via0_system_porta_r));
 	m_via6522_0->readpb_handler().set(FUNC(f256_state::via0_system_portb_r));
 	m_via6522_0->writepa_handler().set(FUNC(f256_state::via0_system_porta_w));
@@ -93,7 +94,7 @@ void f256_state::f256k(machine_config &config)
     // to handle interrupts before the CPU, look into "input_merger_device"
 	//
 
-    MOS6522(config, m_via6522_1, XTAL(14'318'181)/14); //MASTER_CLOCK / 16);  // Keyboard
+    MOS6522(config, m_via6522_1, MASTER_CLOCK / 4);  // Keyboard XTAL(14'318'181)/14)
     m_via6522_1->readpa_handler().set(FUNC(f256_state::via1_system_porta_r));
 	m_via6522_1->readpb_handler().set(FUNC(f256_state::via1_system_portb_r));
 	m_via6522_1->writepa_handler().set(FUNC(f256_state::via1_system_porta_w));
@@ -122,6 +123,10 @@ void f256_state::f256k(machine_config &config)
 
     //set interrupt handler for the RTC
     m_rtc->int_handler().set(FUNC(f256_state::rtc_interrupt_handler));
+
+    // Add an SD card device
+    //SDCARD_SLOT(config, m_sdcard, 0);
+    //m_sdcard->set_configure_callback(FUNC(f256_state::configure_sdcard));
 }
 
 f256_state::~f256_state()
@@ -370,26 +375,19 @@ u8   f256_state::mem_r(offs_t offset)
                         {
                             // NES
                             return 0xFF;
+
                         }
                         else if (adj_addr >= 0xDB00 && adj_addr < 0xDB10)
                         {
                             // VIA1 - Keyboard for F256K
                             return m_via6522_1->read(adj_addr - 0xDB00);
+
                         }
                         else if (adj_addr >= 0xDC00 && adj_addr < 0xDC10)
                         {
                             // VIA0 - Atari Joystick
                             return m_via6522_0->read(adj_addr - 0xDC00);
-                            // switch (adj_addr)
-                            // {
-                            //     case 0xDC00:
-                            //         return m_joy[1]->read();
-                            //     case 0xDC01:
-                            //         return m_joy[0]->read();
-                            //     default:
-                            //         return m_via6522_0->read(adj_addr - 0xDC00);
-                            // }
-                            break;
+
                         }
                         else if (adj_addr >= 0xDD00 && adj_addr < 0xDD20)
                         {
@@ -717,8 +715,16 @@ void f256_state::device_start()
     m_via6522_0->write(via6522_device::VIA_DDRA, 0);     // DDRA
 
     // Initialize the VIA1
+    m_via6522_1->write(via6522_device::VIA_PB, 0);
+    m_via6522_1->write(via6522_device::VIA_PA, 0);
     m_via6522_1->write(via6522_device::VIA_DDRB, 0);     // DDRB
     m_via6522_1->write(via6522_device::VIA_DDRA, 0);     // DDRA
+
+    // Initialize SD card support
+    // if (m_sdcard)
+    // {
+    //     m_sdcard->load("sdcard.img"); // Specify a default SD card image
+    // }
 }
 
 //-------------------------------------------------
@@ -777,30 +783,41 @@ void f256_state::via1_interrupt(int state)
     }
 }
 
+
+//-------------------------------------------------
+//  SD Card
+//-------------------------------------------------
+// Adding an SD card device to the system
+// void f256_state::configure_sdcard(spi_sdcard_device &device)
+// {
+//     //device.set_interface("sdcard");
+//     //device.set_formats(sdcard_fat32_formats); // Define FAT32 format
+// }
+
 //-------------------------------------------------
 //  VIA0 - JOYSTICK
 //-------------------------------------------------
 u8 f256_state::via0_system_porta_r()
 {
-    u8 data = ioport("JOY2")->read();
     //logerror("VIA #0 Port A Read ioport JOY2: %02X\n", data);
-    return data;
+    return ioport("JOY2")->read();
+}
+u8 f256_state::via0_system_portb_r()
+{
+    //logerror("VIA #0 Port B Read ioport JOY1: %02X\n", m_via_joy1);
+    return m_via_joy1;
 }
 void f256_state::via0_system_porta_w(u8 data)
 {
     //logerror("VIA #0 Port A Write: %02X\n", data);
     // writing should only be done if DDR allows it
-}
-u8 f256_state::via0_system_portb_r()
-{
-    u8 data = ioport("JOY1")->read();
-    //logerror("VIA #0 Port A Read ioport JOY1: %02X\n", data);
-    return data;
+    m_via6522_0->write_pa(data);
 }
 void f256_state::via0_system_portb_w(u8 data)
 {
     //logerror("VIA #0 Port B Write: %02X\n", data);
     // writing should only be done if DDR allows it
+    m_via6522_0->write_pb(data);
 }
 void f256_state::via0_ca2_write(u8 value)
 {
@@ -825,13 +842,13 @@ static INPUT_PORTS_START(f256k_joysticks)
     PORT_BIT(0x40, IP_ACTIVE_LOW, IPT_BUTTON3)                  PORT_PLAYER(1) PORT_NAME("Atari Joystick P1 Button 3")
 
 	PORT_START("JOY2") /* Atari Joystick 2 */
-	PORT_BIT(0x01, IP_ACTIVE_LOW, IPT_JOYSTICK_UP)    PORT_8WAY PORT_PLAYER(2) PORT_NAME("Atari Joystick P2 Up")       PORT_CODE(KEYCODE_8_PAD)
-    PORT_BIT(0x02, IP_ACTIVE_LOW, IPT_JOYSTICK_DOWN)  PORT_8WAY PORT_PLAYER(2) PORT_NAME("Atari Joystick P2 Down")     PORT_CODE(KEYCODE_2_PAD)
-    PORT_BIT(0x04, IP_ACTIVE_LOW, IPT_JOYSTICK_LEFT)  PORT_8WAY PORT_PLAYER(2) PORT_NAME("Atari Joystick P2 Left")     PORT_CODE(KEYCODE_4_PAD)
-	PORT_BIT(0x08, IP_ACTIVE_LOW, IPT_JOYSTICK_RIGHT) PORT_8WAY PORT_PLAYER(2) PORT_NAME("Atari Joystick P2 Right")    PORT_CODE(KEYCODE_6_PAD)
-	PORT_BIT(0x10, IP_ACTIVE_LOW, IPT_BUTTON1)                  PORT_PLAYER(2) PORT_NAME("Atari Joystick P2 Button 1") PORT_CODE(KEYCODE_0_PAD)
-    PORT_BIT(0x20, IP_ACTIVE_LOW, IPT_BUTTON2)                  PORT_PLAYER(2) PORT_NAME("Atari Joystick P2 Button 2") PORT_CODE(KEYCODE_1_PAD)
-    PORT_BIT(0x40, IP_ACTIVE_LOW, IPT_BUTTON3)                  PORT_PLAYER(2) PORT_NAME("Atari Joystick P2 Button 3") PORT_CODE(KEYCODE_5_PAD)
+	PORT_BIT(0x01, IP_ACTIVE_LOW, IPT_JOYSTICK_UP)    PORT_8WAY PORT_PLAYER(2) PORT_NAME("Atari Joystick P2 Up")
+    PORT_BIT(0x02, IP_ACTIVE_LOW, IPT_JOYSTICK_DOWN)  PORT_8WAY PORT_PLAYER(2) PORT_NAME("Atari Joystick P2 Down")
+    PORT_BIT(0x04, IP_ACTIVE_LOW, IPT_JOYSTICK_LEFT)  PORT_8WAY PORT_PLAYER(2) PORT_NAME("Atari Joystick P2 Left")
+	PORT_BIT(0x08, IP_ACTIVE_LOW, IPT_JOYSTICK_RIGHT) PORT_8WAY PORT_PLAYER(2) PORT_NAME("Atari Joystick P2 Right")
+	PORT_BIT(0x10, IP_ACTIVE_LOW, IPT_BUTTON1)                  PORT_PLAYER(2) PORT_NAME("Atari Joystick P2 Button 1")
+    PORT_BIT(0x20, IP_ACTIVE_LOW, IPT_BUTTON2)                  PORT_PLAYER(2) PORT_NAME("Atari Joystick P2 Button 2")
+    PORT_BIT(0x40, IP_ACTIVE_LOW, IPT_BUTTON3)                  PORT_PLAYER(2) PORT_NAME("Atari Joystick P2 Button 3")
 INPUT_PORTS_END
 
 //-------------------------------------------------
@@ -839,77 +856,56 @@ INPUT_PORTS_END
 //-------------------------------------------------
 u8 f256_state::via1_system_porta_r()
 {
-    // int r[8] = {};
-    // int first_non_zero_row = -1;
-    // for (int row = 0; row < m_keyboard.size(); row++)
-    // {
-    //     r[row] = ~m_keyboard[row]->read() & ((row==0 || row==6) ? 0x1FF : 0xFF);
-    //     if (r[row] != 0)
-    //     {
-    //         first_non_zero_row = row;
-    //     }
-    // }
-    // //m_via_port_b = first_non_zero_row != -1 ? ~(1 << first_non_zero_row) : 0xFF;
-    // m_via_port_a = first_non_zero_row != -1 ? ~r[first_non_zero_row] : 0xFF;
-    //logerror("VIA1-A READ: R0: %02X, R1: %02X R2: %02X, R3: %02X R4: %02X, R5: %02X R6: %02X, R7: %02X A: %02X, B: %02X\n",
-    //  r[0], r[1],
-    //  r[2], r[3],
-    //  r[4], r[5],
-    //  r[6], r[7],
-    //  m_via_port_a, m_via_port_b);
-    // m_via6522_1->write_pb(m_via_port_b);
-    return m_via_port_a;
+    //logerror("VIA1 Read Port A - %02X\n", m_via_keyboard_port_a);
+    return m_via_keyboard_port_a;
 }
 u8 f256_state::via1_system_portb_r()
 {
-    // for (int row = 0; row < m_keyboard.size(); row++)
-    // {
-    //     if (BIT(m_via_port_a, row) == 0)
-    //     {
-    //         uint16_t v = ~m_keyboard[row]->read() & ((row == 0 || row == 6) ? 0x1FF: 0xFF);
-    //         if (v != 0)
-    //         {
-    //             m_via_port_b = m_keyboard[row]->read();
-    //             break;
-    //         }
-
-    //     }
-    // }
-    m_via_port_b = 0xff;
-
-    for (int i = 0; i < 8; i++)
-    {
-        if (BIT(m_via_port_a,i) == 0)
-        {
-            m_via_port_b &= m_keyboard[i]->read();
-        }
-    }
-    logerror("\t\t\tRead from VIA1 PORT B: %02X\n", m_via_port_b);
-    //m_via6522_1->write_pb(m_via_port_b);
-    return m_via_port_b;
+    //logerror("VIA1 Read Port B - %02X\n", m_via_keyboard_port_b);
+    return m_via_keyboard_port_b;
 }
 // Read keyboard as rows
 void f256_state::via1_system_porta_w(u8 data)
 {
-    m_via_port_a = data;
-    m_via6522_1->write_pa(data);
-    logerror("Write to VIA1 PORT A: %02X\n", data);
+    //logerror("VIA1 Write Port A - %02X\n", data);
+
+    m_via_keyboard_port_a = data;
+    m_via_keyboard_port_b = 0xFF;
+    // scan each keyboard row
+    u8 joy1 = ioport("JOY1")->read();
+    m_via_joy1 = joy1 | 0x80;
+    for (int r = 0; r < 8; r++)
+    {
+        //if (BIT(m_via_keyboard_port_a,r) == 0)
+        if (BIT(data, r) == 0)
+        {
+            uint16_t kbval = m_keyboard[r]->read();
+            m_via_keyboard_port_b &= (kbval & 0xFF);
+            if (r == 6 || r == 0)
+            {
+                if (BIT(kbval,8) == 0)
+                {
+                    m_via_joy1 = joy1;
+                    //logerror("row: %d, kbval: %02X, joy1: %02X, porta: %02X, portb: %02X\n", r, kbval, m_via_joy1, m_via_keyboard_port_a, m_via_keyboard_port_b);
+                }
+            }
+        }
+    }
+    m_via6522_1->write_pa(m_via_keyboard_port_a);
+    m_via6522_0->write_pb(m_via_joy1);
 }
 // Read keyboard as columns
 void f256_state::via1_system_portb_w(u8 data)
 {
-    m_via_port_b = data;
+    m_via_keyboard_port_b = data;
     m_via6522_1->write_pb(data);
-    logerror("Write to VIA1 PORT B: %02X\n", data);
 }
 void f256_state::via1_ca2_write(u8 value)
 {
-    logerror("Write to VIA1 - CA2 %02X\n", value);
     m_via6522_1->write_ca2(value);
 }
 void f256_state::via1_cb2_write(u8 value)
 {
-    logerror("Write to VIA1 - CB2 %02X\n",value);
     m_via6522_1->write_cb2(value);
 }
 
@@ -919,24 +915,24 @@ static INPUT_PORTS_START(f256k)
     PORT_INCLUDE( f256k_joysticks )
 
 	PORT_START("ROW0")
-    PORT_BIT(0x01, IP_ACTIVE_LOW, IPT_KEYBOARD) PORT_NAME("DEL") PORT_CODE(KEYCODE_DEL)
-    PORT_BIT(0x02, IP_ACTIVE_LOW, IPT_KEYBOARD) PORT_NAME("ENTER") PORT_CODE(KEYCODE_ENTER)
+    PORT_BIT(0x01, IP_ACTIVE_LOW, IPT_KEYBOARD) PORT_NAME("DEL")     PORT_CODE(KEYCODE_DEL)
+    PORT_BIT(0x02, IP_ACTIVE_LOW, IPT_KEYBOARD) PORT_NAME("ENTER")   PORT_CODE(KEYCODE_ENTER)
     PORT_BIT(0x04, IP_ACTIVE_LOW, IPT_KEYBOARD) PORT_NAME(UTF8_LEFT) PORT_CODE(KEYCODE_LEFT)
-    PORT_BIT(0x08, IP_ACTIVE_LOW, IPT_KEYBOARD) PORT_NAME("F7") PORT_CODE(KEYCODE_F7)
-    PORT_BIT(0x10, IP_ACTIVE_LOW, IPT_KEYBOARD) PORT_NAME("F1") PORT_CODE(KEYCODE_F1)
-    PORT_BIT(0x20, IP_ACTIVE_LOW, IPT_KEYBOARD) PORT_NAME("F3") PORT_CODE(KEYCODE_F3)
-    PORT_BIT(0x40, IP_ACTIVE_LOW, IPT_KEYBOARD) PORT_NAME("F5") PORT_CODE(KEYCODE_F5)
-    PORT_BIT(0x80, IP_ACTIVE_LOW, IPT_KEYBOARD) PORT_NAME(UTF8_UP) PORT_CODE(KEYCODE_UP)
-    PORT_BIT(0x100, IP_ACTIVE_LOW, IPT_KEYBOARD) PORT_NAME(UTF8_DOWN) PORT_CODE(KEYCODE_DOWN)
+    PORT_BIT(0x08, IP_ACTIVE_LOW, IPT_KEYBOARD) PORT_NAME("F7")      PORT_CODE(KEYCODE_F7)
+    PORT_BIT(0x10, IP_ACTIVE_LOW, IPT_KEYBOARD) PORT_NAME("F1")      PORT_CODE(KEYCODE_F1)
+    PORT_BIT(0x20, IP_ACTIVE_LOW, IPT_KEYBOARD) PORT_NAME("F3")      PORT_CODE(KEYCODE_F3)
+    PORT_BIT(0x40, IP_ACTIVE_LOW, IPT_KEYBOARD) PORT_NAME("F5")      PORT_CODE(KEYCODE_F5)
+    PORT_BIT(0x80, IP_ACTIVE_LOW, IPT_KEYBOARD) PORT_NAME(UTF8_UP)   PORT_CODE(KEYCODE_UP)
+    PORT_BIT(0x100,IP_ACTIVE_LOW, IPT_KEYBOARD) PORT_NAME(UTF8_DOWN) PORT_CODE(KEYCODE_DOWN)
 
     PORT_START("ROW1")
-    PORT_BIT(0x01, IP_ACTIVE_LOW, IPT_KEYBOARD) PORT_NAME("3") PORT_CODE(KEYCODE_3)
-    PORT_BIT(0x02, IP_ACTIVE_LOW, IPT_KEYBOARD) PORT_NAME("W") PORT_CODE(KEYCODE_W)
-    PORT_BIT(0x04, IP_ACTIVE_LOW, IPT_KEYBOARD) PORT_NAME("A") PORT_CODE(KEYCODE_A)
-    PORT_BIT(0x08, IP_ACTIVE_LOW, IPT_KEYBOARD) PORT_NAME("4") PORT_CODE(KEYCODE_4)
-    PORT_BIT(0x10, IP_ACTIVE_LOW, IPT_KEYBOARD) PORT_NAME("Z") PORT_CODE(KEYCODE_Z)
-    PORT_BIT(0x20, IP_ACTIVE_LOW, IPT_KEYBOARD) PORT_NAME("S") PORT_CODE(KEYCODE_S)
-    PORT_BIT(0x40, IP_ACTIVE_LOW, IPT_KEYBOARD) PORT_NAME("E") PORT_CODE(KEYCODE_E)
+    PORT_BIT(0x01, IP_ACTIVE_LOW, IPT_KEYBOARD) PORT_NAME("3")       PORT_CODE(KEYCODE_3)
+    PORT_BIT(0x02, IP_ACTIVE_LOW, IPT_KEYBOARD) PORT_NAME("W")       PORT_CODE(KEYCODE_W)
+    PORT_BIT(0x04, IP_ACTIVE_LOW, IPT_KEYBOARD) PORT_NAME("A")       PORT_CODE(KEYCODE_A)
+    PORT_BIT(0x08, IP_ACTIVE_LOW, IPT_KEYBOARD) PORT_NAME("4")       PORT_CODE(KEYCODE_4)
+    PORT_BIT(0x10, IP_ACTIVE_LOW, IPT_KEYBOARD) PORT_NAME("Z")       PORT_CODE(KEYCODE_Z)
+    PORT_BIT(0x20, IP_ACTIVE_LOW, IPT_KEYBOARD) PORT_NAME("S")       PORT_CODE(KEYCODE_S)
+    PORT_BIT(0x40, IP_ACTIVE_LOW, IPT_KEYBOARD) PORT_NAME("E")       PORT_CODE(KEYCODE_E)
     PORT_BIT(0x80, IP_ACTIVE_LOW, IPT_KEYBOARD) PORT_NAME("L SHIFT") PORT_CODE(KEYCODE_LSHIFT)
 
     PORT_START("ROW2")
@@ -980,24 +976,24 @@ static INPUT_PORTS_START(f256k)
     PORT_BIT(0x80, IP_ACTIVE_LOW, IPT_KEYBOARD) PORT_NAME(",") PORT_CODE(KEYCODE_COMMA)
 
     PORT_START("ROW6")
-    PORT_BIT(0x01, IP_ACTIVE_LOW, IPT_KEYBOARD) PORT_NAME("=") PORT_CODE(KEYCODE_EQUALS)
-    PORT_BIT(0x02, IP_ACTIVE_LOW, IPT_KEYBOARD) PORT_NAME("]") PORT_CODE(KEYCODE_CLOSEBRACE)
-    PORT_BIT(0x04, IP_ACTIVE_LOW, IPT_KEYBOARD) PORT_NAME("'") PORT_CODE(KEYCODE_QUOTE)
-    PORT_BIT(0x08, IP_ACTIVE_LOW, IPT_KEYBOARD) PORT_NAME("HOME") PORT_CODE(KEYCODE_HOME)
-    PORT_BIT(0x10, IP_ACTIVE_LOW, IPT_KEYBOARD) PORT_NAME("R SHIFT") PORT_CODE(KEYCODE_C)
-    PORT_BIT(0x20, IP_ACTIVE_LOW, IPT_KEYBOARD) PORT_NAME("ALT") PORT_CODE(KEYCODE_LALT) PORT_CODE(KEYCODE_RALT)
-    PORT_BIT(0x40, IP_ACTIVE_LOW, IPT_KEYBOARD) PORT_NAME("TAB") PORT_CODE(KEYCODE_TAB)
-    PORT_BIT(0x80, IP_ACTIVE_LOW, IPT_KEYBOARD) PORT_NAME("/") PORT_CODE(KEYCODE_SLASH)
-    PORT_BIT(0x100, IP_ACTIVE_LOW, IPT_KEYBOARD) PORT_NAME(UTF8_RIGHT) PORT_CODE(KEYCODE_RIGHT)
+    PORT_BIT(0x01, IP_ACTIVE_LOW, IPT_KEYBOARD) PORT_NAME("=")         PORT_CODE(KEYCODE_EQUALS)
+    PORT_BIT(0x02, IP_ACTIVE_LOW, IPT_KEYBOARD) PORT_NAME("]")         PORT_CODE(KEYCODE_CLOSEBRACE)
+    PORT_BIT(0x04, IP_ACTIVE_LOW, IPT_KEYBOARD) PORT_NAME("'")         PORT_CODE(KEYCODE_QUOTE)
+    PORT_BIT(0x08, IP_ACTIVE_LOW, IPT_KEYBOARD) PORT_NAME("HOME")      PORT_CODE(KEYCODE_HOME)
+    PORT_BIT(0x10, IP_ACTIVE_LOW, IPT_KEYBOARD) PORT_NAME("R SHIFT")   PORT_CODE(KEYCODE_RSHIFT)
+    PORT_BIT(0x20, IP_ACTIVE_LOW, IPT_KEYBOARD) PORT_NAME("ALT")       PORT_CODE(KEYCODE_LALT) PORT_CODE(KEYCODE_RALT)
+    PORT_BIT(0x40, IP_ACTIVE_LOW, IPT_KEYBOARD) PORT_NAME("TAB")       PORT_CODE(KEYCODE_TAB)
+    PORT_BIT(0x80, IP_ACTIVE_LOW, IPT_KEYBOARD) PORT_NAME("/")         PORT_CODE(KEYCODE_SLASH)
+    PORT_BIT(0x100, IP_ACTIVE_LOW, IPT_KEYBOARD) PORT_NAME("RIGHT") PORT_CODE(KEYCODE_RIGHT)
 
     PORT_START("ROW7")
-    PORT_BIT(0x01, IP_ACTIVE_LOW, IPT_KEYBOARD) PORT_NAME("1") PORT_CODE(KEYCODE_1)
-    PORT_BIT(0x02, IP_ACTIVE_LOW, IPT_KEYBOARD) PORT_NAME("BKSP") PORT_CODE(KEYCODE_BACKSPACE)
-    PORT_BIT(0x04, IP_ACTIVE_LOW, IPT_KEYBOARD) PORT_NAME("CTRL") PORT_CODE(KEYCODE_LCONTROL)
-    PORT_BIT(0x08, IP_ACTIVE_LOW, IPT_KEYBOARD) PORT_NAME("2") PORT_CODE(KEYCODE_2)
-    PORT_BIT(0x10, IP_ACTIVE_LOW, IPT_KEYBOARD) PORT_NAME("SPACE") PORT_CODE(KEYCODE_SPACE)
+    PORT_BIT(0x01, IP_ACTIVE_LOW, IPT_KEYBOARD) PORT_NAME("1")      PORT_CODE(KEYCODE_1)
+    PORT_BIT(0x02, IP_ACTIVE_LOW, IPT_KEYBOARD) PORT_NAME("BKSP")   PORT_CODE(KEYCODE_BACKSPACE)
+    PORT_BIT(0x04, IP_ACTIVE_LOW, IPT_KEYBOARD) PORT_NAME("CTRL")   PORT_CODE(KEYCODE_LCONTROL)
+    PORT_BIT(0x08, IP_ACTIVE_LOW, IPT_KEYBOARD) PORT_NAME("2")      PORT_CODE(KEYCODE_2)
+    PORT_BIT(0x10, IP_ACTIVE_LOW, IPT_KEYBOARD) PORT_NAME("SPACE")  PORT_CODE(KEYCODE_SPACE)
     PORT_BIT(0x20, IP_ACTIVE_LOW, IPT_KEYBOARD) PORT_NAME("FOENIX") PORT_CODE(KEYCODE_LWIN)
-    PORT_BIT(0x40, IP_ACTIVE_LOW, IPT_KEYBOARD) PORT_NAME("Q") PORT_CODE(KEYCODE_Q)
+    PORT_BIT(0x40, IP_ACTIVE_LOW, IPT_KEYBOARD) PORT_NAME("Q")      PORT_CODE(KEYCODE_Q)
     PORT_BIT(0x80, IP_ACTIVE_LOW, IPT_KEYBOARD) PORT_NAME("RUN/STOP") PORT_CODE(KEYCODE_STOP)
 INPUT_PORTS_END
 
@@ -1022,4 +1018,4 @@ ROM_START(f256k)
 ROM_END
 
 //    YEAR  NAME   PARENT COMPAT  MACHINE    INPUT    CLASS        INIT        COMPANY              FULLNAME                        FLAGS
-COMP( 2024, f256k,    0,      0,    f256k,   f256k,   f256_state, empty_init, "Stefany Allaire", "F256K 8-bit Retro System",      MACHINE_IS_INCOMPLETE  )
+COMP( 2024, f256k,    0,      0,    f256k,   f256k,   f256_state, empty_init, "Stefany Allaire", "F256K 8-bit Retro System",    MACHINE_UNOFFICIAL  )

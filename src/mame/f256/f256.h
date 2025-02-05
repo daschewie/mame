@@ -13,6 +13,7 @@
 #include "utf8.h"
 #include "tiny_vicky.h"
 #include "speaker.h"
+//#include "sdcard.h"
 
 #define MASTER_CLOCK        (XTAL(25'175'000))
 #define MAINCPU_TAG                 "maincpu"
@@ -54,6 +55,7 @@ private:
 	required_device<mos6581_device> m_sid0, m_sid1;
 
 	required_device<tiny_vicky_video_device> m_video;
+	//optional_device<floppy> m_sdcard;
 
     void program_map(address_map &map);
 	void data_map(address_map &map);
@@ -83,8 +85,9 @@ private:
 	void via0_cb2_write(u8 data);
 
 	// VIA1 - Internal Keyboard
-	uint8_t m_via_port_a = 0xFF;
-	uint8_t m_via_port_b = 0xFF;
+	uint8_t m_via_keyboard_port_a = 0xFF;
+	uint8_t m_via_keyboard_port_b = 0xFF;
+	u_int8_t m_via_joy1 = 0xFF;
 
 	u8 via1_system_porta_r();
 	u8 via1_system_portb_r();
@@ -110,6 +113,13 @@ private:
 	int msQLen = 0;
 	uint8_t kbFifo[6] = {};
 	uint8_t msFifo[3] = {};
+
+	// SDCard
+	// void configure_sdcard(spi_sdcard_device &device);
+	// static const sdcard_format_type sdcard_fat32_formats[] = {
+    // 	SDCARD_FORMAT_FAT32,
+    // 	nullptr
+	// };
 };
 
 #endif // MAME_F256_F256_H
