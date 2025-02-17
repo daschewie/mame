@@ -13,7 +13,7 @@
 #include "utf8.h"
 #include "tiny_vicky.h"
 #include "speaker.h"
-//#include "sdcard.h"
+#include "machine/spi_sdcard.h"
 
 #define MASTER_CLOCK        (XTAL(25'175'000))
 #define MAINCPU_TAG                 "maincpu"
@@ -55,7 +55,19 @@ private:
 	required_device<mos6581_device> m_sid0, m_sid1;
 
 	required_device<tiny_vicky_video_device> m_video;
-	//optional_device<floppy> m_sdcard;
+
+	// SD Card stuff
+	TIMER_CALLBACK_MEMBER(spi_clock);
+	required_device<spi_sdcard_device> m_sdcard;
+	emu_timer *m_spi_clock;
+	bool m_spi_clock_state;
+	bool m_spi_clock_sysclk;
+	int m_spi_clock_cycles;
+	int m_in_bit = 0;
+	u8 spi_sd_enabled = 0;
+	uint8_t m_in_latch = 0;
+	uint8_t m_out_latch = 0;
+	// End of SD Card stuff
 
     void program_map(address_map &map);
 	void data_map(address_map &map);
@@ -115,11 +127,31 @@ private:
 	uint8_t msFifo[3] = {};
 
 	// SDCard
-	// void configure_sdcard(spi_sdcard_device &device);
-	// static const sdcard_format_type sdcard_fat32_formats[] = {
-    // 	SDCARD_FORMAT_FAT32,
-    // 	nullptr
-	// };
+	void write_sd_control(u8 ctrl);
+	void write_sd_data(u8 data);
+
+	// Math Copro
+	void unsignedMultiplier(int baseAddr);
+	void unsignedDivider(int baseAddr);
+	void unsignedAdder(int baseAddr);
+
+	// DMA
+	uint8_t m_dma_status = 0;
+	void perform2DFillDMA();
+    void performLinearFillDMA();
+    void perform2DDMA();
+    void performLinearDMA();
+	void dma_interrupt_handler(int state);
+
+	// Timers
+	uint8_t m_timer0_eq = 0, m_timer1_eq = 0;
+	uint32_t m_timer0_val = 0, m_timer1_val = 0;
+	TIMER_CALLBACK_MEMBER(timer0);
+	emu_timer *m_timer0;
+	void timer0_interrupt_handler(int state);
+	TIMER_CALLBACK_MEMBER(timer1);
+	emu_timer *m_timer1;
+	void timer1_interrupt_handler(int state);
 };
 
 #endif // MAME_F256_F256_H

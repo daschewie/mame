@@ -52,9 +52,12 @@ f256_state::f256_state(const machine_config &mconfig, device_type type, const ch
     , m_opl3(*this, "ymf262")
     , m_sid0(*this, "sid_0")
     , m_sid1(*this, "sid_1")
-    //, m_sdcard(*this, "sd_card")
-    , m_video(*this, "tiny_vicky")
 
+    , m_video(*this, "tiny_vicky")
+    , m_sdcard(*this, "sdcard")
+	, m_spi_clock_state(false)
+	, m_spi_clock_sysclk(false)
+	, m_spi_clock_cycles(0)
 
     // m_firqs(*this, "firqs"),
     // m_in_floating_bus_read(false)
@@ -125,8 +128,11 @@ void f256_state::f256k(machine_config &config)
     m_rtc->int_handler().set(FUNC(f256_state::rtc_interrupt_handler));
 
     // Add an SD card device
-    //SDCARD_SLOT(config, m_sdcard, 0);
-    //m_sdcard->set_configure_callback(FUNC(f256_state::configure_sdcard));
+    SPI_SDCARD(config, m_sdcard, 0);
+	m_sdcard->set_prefer_sdhc();
+    m_sdcard->spi_miso_callback().set([this](int state) {
+        m_in_bit = state;
+    });
 }
 
 f256_state::~f256_state()
@@ -225,14 +231,17 @@ u8   f256_state::mem_r(offs_t offset)
                         if (adj_addr >= 0xD400 && adj_addr < 0xD580)
                         {
                             // SID
+                            logerror("SID access?");
                         }
                         else if (adj_addr >= 0xD580 && adj_addr < 0xD583)
                         {
                             // OPL3
+                            logerror("OPL3 access?");
                         }
                         else if (adj_addr >= 0xD600 && adj_addr < 0xD620)
                         {
                             // PSG - left channel D600, right channel D610 - both D608
+                            logerror("PSG access?");
                         }
                         else if (adj_addr >= 0xD620 && adj_addr < 0xD630)
                         {
@@ -242,6 +251,7 @@ u8   f256_state::mem_r(offs_t offset)
                         else if (adj_addr >= 0xD630 && adj_addr < 0xD640)
                         {
                             // UART
+                            logerror("UART access?");
                         }
                         else if (adj_addr >= 0xD640 && adj_addr < 0xD64F)
                         {
@@ -294,6 +304,26 @@ u8   f256_state::mem_r(offs_t offset)
                         else if (adj_addr >= 0xD650 && adj_addr < 0xD660)
                         {
                             // Timers
+                            switch (adj_addr)
+                            {
+                                case 0xD650:
+                                    return m_timer0_eq;
+                                case 0xD651:
+                                    return m_timer0_val & 0xFF;
+                                case 0xD652:
+                                    return (m_timer0_val >> 8) & 0xFF;
+                                case 0xD653:
+                                    return (m_timer0_val >> 16) & 0xFF;
+                                case 0xD658:
+                                    return m_timer1_eq;
+                                case 0xD659:
+                                    return m_timer1_val & 0xFF;
+                                case 0xD65A:
+                                    return (m_timer1_val >> 8) & 0xFF;
+                                case 0xD65B:
+                                    return (m_timer1_val >> 16) & 0xFF;
+                            }
+                            return m_iopage0->read(adj_addr - 0xC000);
                         }
                         else if (adj_addr >= 0xD660 && adj_addr < 0xD670)
                         {
@@ -350,6 +380,8 @@ u8   f256_state::mem_r(offs_t offset)
                             // D6A4 - D6A6 : Random Number generator
                             // D6A7 - Macine ID - For the F256, the machine ID will be 0x02. For the F256k, the machine ID will be 0x12.
                             switch (adj_addr){
+                                case 0xD6A0:
+                                    return m_sdcard->get_card_present() ? 0x10:0;
                                 case 0xD6A7:
                                     return 0x12;
                                 case 0XD6A8:
@@ -392,14 +424,39 @@ u8   f256_state::mem_r(offs_t offset)
                         else if (adj_addr >= 0xDD00 && adj_addr < 0xDD20)
                         {
                             // SD Card
+                            //m_sdcard->(adj_addr - 0xDD00);
+                            switch (adj_addr)
+                            {
+                                case 0xDD00:
+                                {
+                                    // bit 7 is the busy state
+                                    u8 spi_reg = (m_spi_clock_cycles > 0 ? 0x80 : 0x00) + (spi_sd_enabled ? 1 : 0); // TODO add clock bits
+                                    logerror("Read SD 0: %02X\n", spi_reg);
+                                    return spi_reg;
+                                }
+                                case 0xDD01:
+                                    logerror("Read SD 1: %02X\n", spi_sd_enabled ? m_in_latch : m_out_latch);
+                                    return m_in_latch;
+                                default:
+                                    return 0xFF;
+                            }
                         }
                         else if (adj_addr >= 0xDE00 && adj_addr < 0xDE20)
                         {
                             // Math Coprocessor
+                            return m_iopage0->read(adj_addr - 0xC000);
                         }
                         else if (adj_addr >= 0xDF00 && adj_addr < 0xE000)
                         {
                             // DMA
+                            if (adj_addr == 0xDF01)
+                            {
+                                return m_dma_status;
+                            }
+                            else
+                            {
+                                return m_iopage0->read(adj_addr - 0xC000);
+                            }
                         }
                         // Stick everything else in Vicky
                             // (adj_addr >= 0xC000 && adj_addr < 0xD400) ||  // gamma, mouse graphics, vicky registers, bitmaps, tiles
@@ -458,6 +515,7 @@ void f256_state::mem_w(offs_t offset, u8 data)
                         if (adj_addr >= 0xD400 && adj_addr < 0xD580)
                         {
                             // SID
+
                         }
                         else if (adj_addr >= 0xD580 && adj_addr < 0xD583)
                         {
@@ -525,6 +583,53 @@ void f256_state::mem_w(offs_t offset, u8 data)
                         else if (adj_addr >= 0xD650 && adj_addr < 0xD660)
                         {
                             // Timers
+                            m_iopage0->write(adj_addr - 0xC000, data);
+                            if (adj_addr == 0xD650)
+                            {
+                                if ((data & 0x1) == 1)
+                                {
+                                    logerror("Start Timer0\n");
+                                    m_timer0->adjust(attotime::from_hz(XTAL(25'175'000)), 0, attotime::from_hz(XTAL(25'175'000)));
+                                }
+                                else
+                                {
+                                    logerror("Stop Timer0\n");
+                                    m_timer0->adjust(attotime::never);
+                                }
+
+                                if ((data & 0x2) != 0)
+                                {
+                                    m_timer0_val = 0;
+                                }
+                                if ((data & 0x4) != 0)
+                                {
+                                    m_timer0_val = m_iopage0->read(0xD651 - 0xC000) + (m_iopage0->read(0xD652 - 0xC000) << 8) +
+                                        (m_iopage0->read(0xD653 - 0xC000) << 16);
+                                }
+                            }
+                            else if (adj_addr == 0xD658)
+                            {
+                                if ((data & 0x1) == 1)
+                                {
+                                    logerror("Start Timer1\n");
+                                    m_timer1->adjust(attotime::from_hz(XTAL(60)), 0, attotime::from_hz(XTAL(60)));
+                                }
+                                else
+                                {
+                                    logerror("Stop Timer1\n");
+                                    m_timer1->adjust(attotime::never);
+                                }
+
+                                if ((data & 0x2) != 0)
+                                {
+                                    m_timer1_val = 0;
+                                }
+                                if ((data & 0x4) != 0)
+                                {
+                                    m_timer1_val = m_iopage0->read(0xD659 - 0xC000) + (m_iopage0->read(0xD65A - 0xC000) << 8) +
+                                        (m_iopage0->read(0xD65B - 0xC000) << 16);
+                                }
+                            }
                         }
                         else if (adj_addr >= 0xD660 && adj_addr < 0xD670)
                         {
@@ -627,14 +732,98 @@ void f256_state::mem_w(offs_t offset, u8 data)
                         else if (adj_addr >= 0xDD00 && adj_addr < 0xDD20)
                         {
                             // SD Card
+                            switch(adj_addr - 0xDD00)
+                            {
+                                case 0:
+                                    // When bit is set, clock is 400kHz - 0= 12.5 MHz
+                                    logerror("Write SD 0: %02X\n", data);
+                                    m_spi_clock_sysclk = bool(BIT(data, 1));
+                                    spi_sd_enabled = BIT(data, 0);
+                                    break;
+                                case 1:
+                                    logerror("Write SD 1: %02X\n", data);
+                                    m_out_latch = data;
+                                    if (spi_sd_enabled)
+                                    {
+                                        m_spi_clock_cycles = 8;
+                                        m_sdcard->spi_ss_w(spi_sd_enabled);
+                                        if (m_spi_clock_sysclk)
+                                            m_spi_clock->adjust(attotime::from_hz(XTAL(400'000)), 0, attotime::from_hz(XTAL(400'000)));
+                                        else
+                                            m_spi_clock->adjust(attotime::from_hz(XTAL(12'500'000)), 0, attotime::from_hz(XTAL(12'500'000)));
+                                    }
+                                    break;
+                            }
+
+                            // - F256K2c
+                            // $DD00 - $DD1F - SDCARD0
+                            // $DD20 - $DD3F - SDCARD1 *** This one has moved ***
+                            // $DD40 - $DD5F - SPLASH LCD (SPI Port)
+                            // $DD60 - $DD7F - Wiznet Copper SPI Interface
+                            // $DD80 - $DD9F - Wiznet WIFI UART interface (115K or 2M)
+                            // $DDA0 - $DDBF - MIDI UART (Fixed @ 31,250Baud)
+                            // $DDC0 - $DDDF - Master SPI Interface to Supervisor (RP2040)*
                         }
                         else if (adj_addr >= 0xDE00 && adj_addr < 0xDE20)
                         {
-                            // Math Coprocessor
+                            // Math Coprocessor - 4 blocks
+                            u8 block = (adj_addr - 0xDE00) >> 2;
+                            logerror("Math copro: %d\n", block);
+                            if (adj_addr < 0xDE10)
+                            {
+                                m_iopage0->write(adj_addr - 0xC000, data);
+                            }
+                            switch (block)
+                            {
+                                case 0:
+                                    unsignedMultiplier(0xDE00 - 0xC000);
+                                    break;
+                                case 1:
+                                    unsignedDivider(0xDE04 - 0xC000);
+                                    break;
+                                case 2:
+                                case 3:
+                                    unsignedAdder(0xDE08 - 0xC000);
+                                    break;
+                            }
                         }
                         else if (adj_addr >= 0xDF00 && adj_addr < 0xE000)
                         {
                             // DMA
+                            m_iopage0->write(adj_addr - 0xC000, data);
+                            if ((adj_addr - 0xDF00) == 0)
+                            {
+                                    // control register - when start and enabled are set start DMA operation
+                                    if ((data & 0x81) == 0x81)
+                                    {
+                                        bool fill = data & 0x4;
+                                        bool tfr_2d = data & 0x2;
+                                        // set to busy
+                                        m_dma_status = 0x80;
+                                        if (fill)
+                                        {
+                                            if (tfr_2d)
+                                                perform2DFillDMA();
+                                            else
+                                                performLinearFillDMA();
+                                        }
+                                        else
+                                        {
+                                            if (tfr_2d)
+                                                perform2DDMA();
+                                            else
+                                                performLinearDMA();
+                                        }
+                                        // set to not busy
+                                        m_dma_status = 0x0;
+                                        // check if an interrupt needs to be raised
+                                        if ((data & 0x8) != 0)
+                                        {
+                                            dma_interrupt_handler(1);
+                                        }
+                                    }
+                            }
+
                         }
                         // stick everything else in Vicky
                             // (adj_addr >= 0xC000 && adj_addr < 0xD400) ||  // gamma, mouse graphics, vicky registers, bitmaps, tiles
@@ -685,6 +874,91 @@ void f256_state::reset_mmu()
 }
 
 //-------------------------------------------------
+//  Math Coprocessor Methods
+//-------------------------------------------------
+void f256_state::unsignedMultiplier(int baseAddr)
+{
+    uint16_t acc1 = (m_iopage0->read(baseAddr + 1) << 8) + m_iopage0->read(baseAddr);
+    uint16_t acc2 = (m_iopage0->read(baseAddr + 3) << 8) + m_iopage0->read(baseAddr + 2);
+    uint32_t result = acc1 * acc2;
+    logerror("Multiply: %04X %04X: %08X\n", acc1, acc2, result);
+    m_iopage0->write(baseAddr + 0x10, (uint8_t)(result & 0xFF));
+    m_iopage0->write(baseAddr + 0x11, (uint8_t)(result >> 8 & 0xFF));
+    m_iopage0->write(baseAddr + 0x12, (uint8_t)(result >> 16 & 0xFF));
+    m_iopage0->write(baseAddr + 0x13, (uint8_t)(result >> 24 & 0xFF));
+}
+
+void f256_state::unsignedDivider(int baseAddr)
+{
+    uint16_t acc1 = (m_iopage0->read(baseAddr + 1) << 8) + m_iopage0->read(baseAddr);
+    uint16_t acc2 = (m_iopage0->read(baseAddr + 3) << 8) + m_iopage0->read(baseAddr + 2);
+    uint result = 0;
+    uint remainder = 0;
+    if (acc1 != 0)
+    {
+        result = (uint)acc2 / acc1;
+        remainder = (uint)acc2 % acc1;
+    }
+    logerror("Divide: %04X %04X: %04X %04X\n", acc1, acc2, result, remainder);
+    m_iopage0->write(baseAddr + 0x10, (uint8_t)(result & 0xFF));
+    m_iopage0->write(baseAddr + 0x11, (uint8_t)(result >> 8 & 0xFF));
+    m_iopage0->write(baseAddr + 0x12, (uint8_t)(remainder & 0xFF));
+    m_iopage0->write(baseAddr + 0x13, (uint8_t)(remainder >> 8 & 0xFF));
+}
+
+void f256_state::unsignedAdder(int baseAddr)
+{
+    int acc1 = (m_iopage0->read(baseAddr + 3) << 24) + (m_iopage0->read(baseAddr + 2) << 16) +
+        (m_iopage0->read(baseAddr + 1) << 8) + m_iopage0->read(baseAddr);
+    int acc2 = (m_iopage0->read(baseAddr + 7) << 24) + (m_iopage0->read(baseAddr + 6) << 16) +
+        (m_iopage0->read(baseAddr + 5) << 8) + m_iopage0->read(baseAddr + 4);
+    int result = acc1 + acc2;
+    logerror("Add: %08X %08X: %16X\n", acc1, acc2, result);
+    m_iopage0->write(baseAddr + 0x10, (uint8_t)(result & 0xFF));
+    m_iopage0->write(baseAddr + 0x11, (uint8_t)(result >> 8 & 0xFF));
+    m_iopage0->write(baseAddr + 0x12, (uint8_t)(result >> 16 & 0xFF));
+    m_iopage0->write(baseAddr + 0x13, (uint8_t)(result >> 24 & 0xFF));
+}
+
+//-------------------------------------------------
+//  DMA Methods
+//-------------------------------------------------
+void f256_state::perform2DFillDMA()
+{
+    logerror("2D Fill DMA\n");
+    //uint8_t fill_byte = m_iopage0->read(0xDF01 - 0xC000);
+}
+void f256_state::performLinearFillDMA()
+{
+    logerror("Linear Fill DMA\n");
+    uint8_t fill_byte = m_iopage0->read(0xDF01 - 0xC000);
+    uint32_t dest_addr = ((m_iopage0->read(0xDF0A) & 0x7) << 16) + (m_iopage0->read(0xDF09) << 8) + m_iopage0->read(0xDF08);
+    uint32_t count = ((m_iopage0->read(0xDF0E) & 0x7) << 16) + (m_iopage0->read(0xDF0D) << 8) + m_iopage0->read(0xDF0C);
+    for (uint32_t i = 0; i< count; i++)
+    {
+        m_ram->write(dest_addr + i, fill_byte);
+    }
+}
+void f256_state::perform2DDMA()
+{
+    logerror("2D Copy DMA\n");
+}
+void f256_state::performLinearDMA()
+{
+    logerror("Linear Copy DMA\n");
+    uint32_t src_addr = ((m_iopage0->read(0xDF06) & 0x7) << 16) + (m_iopage0->read(0xDF05) << 8) + m_iopage0->read(0xDF04);
+    uint32_t dest_addr = ((m_iopage0->read(0xDF0A) & 0x7) << 16) + (m_iopage0->read(0xDF09) << 8) + m_iopage0->read(0xDF08);
+    uint32_t count = ((m_iopage0->read(0xDF0E) & 0x7) << 16) + (m_iopage0->read(0xDF0D) << 8) + m_iopage0->read(0xDF0C);
+    uint8_t tfr_byte = 0;
+    for (uint32_t i = 0; i< count; i++)
+    {
+        tfr_byte = m_ram->read(src_addr+i);
+        m_ram->write(dest_addr + i, tfr_byte);
+    }
+}
+
+
+//-------------------------------------------------
 //  device_start
 //-------------------------------------------------
 void f256_state::device_start()
@@ -720,11 +994,17 @@ void f256_state::device_start()
     m_via6522_1->write(via6522_device::VIA_DDRB, 0);     // DDRB
     m_via6522_1->write(via6522_device::VIA_DDRA, 0);     // DDRA
 
-    // Initialize SD card support
-    // if (m_sdcard)
-    // {
-    //     m_sdcard->load("sdcard.img"); // Specify a default SD card image
-    // }
+    // Initialize SD Card / SPI clock
+    m_spi_clock = timer_alloc(FUNC(f256_state::spi_clock), this);
+    save_item(NAME(m_spi_clock_state));
+	save_item(NAME(m_spi_clock_sysclk));
+	save_item(NAME(m_spi_clock_cycles));
+	save_item(NAME(m_in_bit));
+	save_item(NAME(m_in_latch));
+	save_item(NAME(m_out_latch));
+
+    m_timer0 = timer_alloc(FUNC(f256_state::timer0), this);
+    m_timer1 = timer_alloc(FUNC(f256_state::timer1), this);
 }
 
 //-------------------------------------------------
@@ -741,6 +1021,12 @@ void f256_state::device_reset()
     m_sn0->reset();
     m_sn1->reset();
     m_opl3->reset();
+    m_sdcard->reset();
+    m_spi_clock->adjust(attotime::never);
+	m_spi_clock_cycles = 0;
+    m_in_bit = 0;
+	m_spi_clock_state = false;
+    spi_sd_enabled = 0;
 }
 
 //-------------------------------------------------
@@ -782,17 +1068,183 @@ void f256_state::via1_interrupt(int state)
         m_maincpu->set_input_line(M6502_IRQ_LINE, state);
     }
 }
+void f256_state::dma_interrupt_handler(int state)
+{
+    logerror("DMA Interrupt Not implemented!");
+    // if (state && ((m_interrupt_masks[1] & 0x10) == 0))
+    // {
+    //     m_interrupt_reg[1] |= 0x10;
+    //     m_maincpu->set_input_line(M6502_IRQ_LINE, state);
+    // }
+}
+void f256_state::timer0_interrupt_handler(int state)
+{
+    logerror("TIMER0 INTERRUPT: %02X\n", state);
+    // if a keyboard button is pressed, set the VIA1 interrupt if the mask allows if
+    if (state && ((m_interrupt_masks[0] & 0x10) == 0))
+    {
+        m_interrupt_reg[0] |= 0x10;
+        m_maincpu->set_input_line(M6502_IRQ_LINE, state);
+    }
+}
+void f256_state::timer1_interrupt_handler(int state)
+{
+    logerror("TIMER1 INTERRUPT: %02X\n", state);
+    // if a keyboard button is pressed, set the VIA1 interrupt if the mask allows if
+    if (state && ((m_interrupt_masks[0] & 0x20) == 0))
+    {
+        m_interrupt_reg[0] |= 0x20;
+        m_maincpu->set_input_line(M6502_IRQ_LINE, state);
+    }
+}
+TIMER_CALLBACK_MEMBER(f256_state::spi_clock)
+{
 
+	if (m_spi_clock_cycles > 0)
+	{
 
-//-------------------------------------------------
-//  SD Card
-//-------------------------------------------------
-// Adding an SD card device to the system
-// void f256_state::configure_sdcard(spi_sdcard_device &device)
-// {
-//     //device.set_interface("sdcard");
-//     //device.set_formats(sdcard_fat32_formats); // Define FAT32 format
-// }
+		if (m_spi_clock_state)
+		{
+			m_in_latch <<= 1;
+			m_in_latch &= ~0x01;
+			m_in_latch |= m_in_bit;
+            //logerror("\tSD TIMER event: %d, in: %02X\n", m_spi_clock_cycles, m_in_latch);
+			m_sdcard->spi_clock_w(1);
+			m_spi_clock_cycles--;
+		}
+		else
+		{
+			m_sdcard->spi_mosi_w(BIT(m_out_latch, 7));
+			m_sdcard->spi_clock_w(0);
+            //logerror("\tSD TIMER event: %d, out: %02X\n", m_spi_clock_cycles, BIT(m_out_latch, 7));
+			m_out_latch <<= 1;
+		}
+
+		m_spi_clock_state = !m_spi_clock_state;
+	}
+	else
+	{
+		m_spi_clock_state = false;
+		m_spi_clock->adjust(attotime::never);
+        logerror("SD TIMER event stopped\n");
+	}
+}
+
+TIMER_CALLBACK_MEMBER(f256_state::timer0)
+{
+    uint8_t reg_t0 = m_iopage0->read(0xD650 - 0xC000);
+    uint32_t cmp = m_iopage0->read(0xD655 - 0xC000) + (m_iopage0->read(0xD656 - 0xC000) << 8) +
+            (m_iopage0->read(0xD657 - 0xC000) << 16);
+
+    // if timer as reached value, then execute the action
+    if (m_timer0_eq == 1)
+    {
+        int8_t action = m_iopage0->read(0xD654 - 0xC000);
+        if (action & 1)
+        {
+            m_timer0_val = 0;
+        }
+        else
+        {
+            m_timer0_val = m_iopage0->read(0xD651 - 0xC000) + (m_iopage0->read(0xD652 - 0xC000) << 8) +
+                (m_iopage0->read(0xD653 - 0xC000) << 16);
+        }
+        m_timer0_eq = 0;
+    }
+    else
+    {
+        if ((reg_t0 & 8) != 0)
+        {
+            // up
+            m_timer0_val++;
+            // it's a 24 bit register
+            if (m_timer0_val == 0x100'0000)
+            {
+                m_timer0_val = 0;
+            }
+
+            if (m_timer0_val == cmp)
+            {
+                m_timer0_eq = 1;
+                logerror("TIMER0 up value reached\n");
+            }
+
+        }
+        else
+        {
+            // down
+            m_timer0_val--;
+            // roll over to 24 bits
+            if (m_timer0_val == 0xFFFF'FFFF)
+            {
+                m_timer0_val = 0xFF'FFFF;
+            }
+            if (m_timer0_val == cmp)
+            {
+                m_timer0_eq = 1;
+                logerror("TIMER0 down value reached\n");
+            }
+        }
+    }
+}
+
+TIMER_CALLBACK_MEMBER(f256_state::timer1)
+{
+    uint8_t reg_t1 = m_iopage0->read(0xD658 - 0xC000);
+    uint32_t cmp = m_iopage0->read(0xD65D - 0xC000) + (m_iopage0->read(0xD65E - 0xC000) << 8) +
+            (m_iopage0->read(0xD65F - 0xC000) << 16);
+
+    // if timer as reached value, then execute the action
+    if (m_timer1_eq == 1)
+    {
+        int8_t action = m_iopage0->read(0xD65C - 0xC000);
+        if (action & 1)
+        {
+            m_timer1_val = 0;
+        }
+        else
+        {
+            m_timer1_val = m_iopage0->read(0xD659 - 0xC000) + (m_iopage0->read(0xD65A - 0xC000) << 8) +
+                (m_iopage0->read(0xD65B - 0xC000) << 16);
+        }
+        m_timer1_eq = 0;
+    }
+    else
+    {
+        if ((reg_t1 & 8) != 0)
+        {
+            // up
+            m_timer1_val++;
+            // it's a 24 bit register
+            if (m_timer1_val == 0x100'0000)
+            {
+                m_timer1_val = 0;
+            }
+
+            if (m_timer1_val == cmp)
+            {
+                m_timer1_eq = 1;
+                logerror("TIMER1 up value reached\n");
+            }
+
+        }
+        else
+        {
+            // down
+            m_timer1_val--;
+            // roll over to 24 bits
+            if (m_timer1_val == 0xFFFF'FFFF)
+            {
+                m_timer1_val = 0xFF'FFFF;
+            }
+            if (m_timer1_val == cmp)
+            {
+                m_timer1_eq = 1;
+                logerror("TIMER1 down value reached\n");
+            }
+        }
+    }
+}
 
 //-------------------------------------------------
 //  VIA0 - JOYSTICK
@@ -909,8 +1361,6 @@ void f256_state::via1_cb2_write(u8 value)
     m_via6522_1->write_cb2(value);
 }
 
-/*  Port                                        Key description                 Emulated key                    Natural key         Shift 1         Shift 2 (Ctrl) */
-
 static INPUT_PORTS_START(f256k)
     PORT_INCLUDE( f256k_joysticks )
 
@@ -1007,24 +1457,24 @@ ROM_START(f256k)
     ROM_LOAD("sb04.bin",             0x08'A000, 0x2000, CRC(f4aa6049) SHA1(11f02fee6ec412f0c96b27b0b149f72cf1770d15))
     ROM_LOAD("dos.bin",              0x08'C000, 0x2000, CRC(f3673c4e) SHA1(9c6b70067d7195d4a6bbd7f379b8e5382bf8cc1b))
     ROM_LOAD("pexec.bin",            0x08'E000, 0x2000, CRC(937c1374) SHA1(40566a51d2ef7321a42fe926b03dee3571c78202))
-	ROM_LOAD("3b.bin",               0x0F'6000, 0x2000, CRC(00880c2a) SHA1(bc89208e94674b8157ecb8107cccb6136b03896c))
-    ROM_LOAD("3c.bin",               0x0F'8000, 0x2000, CRC(9a67f0d7) SHA1(16152cb6045cad4c9fcd773a961898d57d596c3a))
-    ROM_LOAD("3d.bin",               0x0F'A000, 0x2000, CRC(069af1da) SHA1(72101736144cd545484f34393ee0d8df06b1eedb))
-    ROM_LOAD("3e.bin",               0x0F'C000, 0x2000, CRC(8db5d29b) SHA1(6d2f4b43bd3ae211bc15a36212fb6c22090edbf7))
-    ROM_LOAD("3f.bin",               0x0F'E000, 0x2000, CRC(44eb158f) SHA1(b56eb6288e8f05084726d0ab4ee784bbc32d91f8))
+	ROM_LOAD("3b.bin",               0x0F'6000, 0x2000, CRC(00ef4052) SHA1(188170bd7fee6f1507e0b04d5fdee558561d5cba))
+    ROM_LOAD("3c.bin",               0x0F'8000, 0x2000, CRC(2d864773) SHA1(38b09a962ab67c5f5d788ab72d5f93e72d290c80))
+    ROM_LOAD("3d.bin",               0x0F'A000, 0x2000, CRC(97743cb7) SHA1(693fa7762528eca6a75c9ea30a603dadc4d55cf9))
+    ROM_LOAD("3e.bin",               0x0F'C000, 0x2000, CRC(9012398f) SHA1(4ae1e37aa3ad4c2b498bf1797d591d7fa25a9d43))
+    ROM_LOAD("3f.bin",               0x0F'E000, 0x2000, CRC(f692957f) SHA1(b17026bb39ede3719775fb0d80bd170ef4302ac1))
     ROM_LOAD("docs_superbasic1.bin", 0x09'6000, 0x2000, CRC(ad6398cd) SHA1(d926ae72f8f3af2a0b15ac165bc680db2e647740))
     ROM_LOAD("docs_superbasic2.bin", 0x09'8000, 0x2000, CRC(3cf07824) SHA1(b92e88a99ccf51461f45d317e3e555c5d62792eb))
     ROM_LOAD("docs_superbasic3.bin", 0x09'A000, 0x2000, CRC(838cb5df) SHA1(103b182ad76c185c4a779f4865c48c5fc71e2a14))
     ROM_LOAD("docs_superbasic4.bin", 0x09'C000, 0x2000, CRC(bf7841b9) SHA1(7dcbf77c46d680a1c47ac11ed871b832a1479e8e))
     ROM_LOAD("help.bin",             0x09'4000, 0x2000, CRC(b7d63466) SHA1(bd1dafb5849dee61fd48ece16a409e56de62f464))
 
-    // ROM_LOD("fm.00",              10, 0x2000, CRC(6) SHA1())
-    // ROM_LOD("fm.01",              11, 0x2000, CRC(6) SHA1())
-    // ROM_LOD("fm.02",              12, 0x2000, CRC(6) SHA1())
-    // ROM_LOD("fm.03",              13, 0x2000, CRC(6) SHA1())
-    // ROM_LOD("fm.04",              14, 0x2000, CRC(6) SHA1())
-    // ROM_LOD("fm.05",              15, 0x2000, CRC(6) SHA1())
-    // ROM_LOD("fm.06",              16, 0x2000, CRC(6) SHA1())
+    // ROM_LOAD("fm.00",              10, 0x2000, CRC(6) SHA1())
+    // ROM_LOAD("fm.01",              11, 0x2000, CRC(6) SHA1())
+    // ROM_LOAD("fm.02",              12, 0x2000, CRC(6) SHA1())
+    // ROM_LOAD("fm.03",              13, 0x2000, CRC(6) SHA1())
+    // ROM_LOAD("fm.04",              14, 0x2000, CRC(6) SHA1())
+    // ROM_LOAD("fm.05",              15, 0x2000, CRC(6) SHA1())
+    // ROM_LOAD("fm.06",              16, 0x2000, CRC(6) SHA1())
 
     ROM_REGION(0x0800,FONT_TAG,0)
     ROM_LOAD("f256jr_font_micah_jan25th.bin", 0x0000, 0x0800, CRC(6d66da85) SHA1(377dc27ff3a4ae2d80d740b2d16373f8e639eef6))
