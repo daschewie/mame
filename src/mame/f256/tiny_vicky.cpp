@@ -10,13 +10,13 @@ tiny_vicky_video_device::tiny_vicky_video_device(const machine_config &mconfig, 
     device_t(mconfig, type, tag, owner, clock)
     , m_irq_handler(*this)
 {
-
 }
+
 tiny_vicky_video_device::tiny_vicky_video_device(const machine_config &mconfig, const char *tag, device_t *owner, uint32_t clock):
     tiny_vicky_video_device(mconfig, TINY_VICKY, tag, owner, clock)
 {
-
 }
+
 rgb_t tiny_vicky_video_device::get_text_lut(uint8_t color_index, bool fg, bool gamma)
 {
     uint8_t red =   iopage0_ptr[(fg ? 0x1800 : 0x1840) + color_index * 4 + 2];
@@ -37,7 +37,7 @@ uint32_t tiny_vicky_video_device::screen_update(screen_device &screen, bitmap_rg
     {
         uint8_t mcr = iopage0_ptr[0x1000];
         cursor_counter++;
-        if (cursor_counter > cursor_flash_rate *2) 
+        if (cursor_counter > cursor_flash_rate *2)
         {
             cursor_counter = 0;
         }

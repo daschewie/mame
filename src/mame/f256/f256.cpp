@@ -38,14 +38,6 @@ f256_state::f256_state(const machine_config &mconfig, device_type type, const ch
     , m_via6522_0(*this, "via6522_0")
 	, m_via6522_1(*this, "via6522_1")
 
-    // m_floating(*this, "floating"),
-    // m_rs232(*this, RS232_TAG),
-    // m_vhd_0(*this, "vhd0"),
-    // m_vhd_1(*this, "vhd1"),
-    // m_beckerport(*this, "dwsock"),
-    // m_beckerportconfig(*this, BECKERPORT_TAG),
-
-
     //, m_irqs(*this, "irqs")
     , m_sn0(*this, "sn76489_0")
     , m_sn1(*this, "sn76489_1")
@@ -58,11 +50,7 @@ f256_state::f256_state(const machine_config &mconfig, device_type type, const ch
 	, m_spi_clock_state(false)
 	, m_spi_clock_sysclk(false)
 	, m_spi_clock_cycles(0)
-
-    // m_firqs(*this, "firqs"),
-    // m_in_floating_bus_read(false)
 {
-
 }
 
 void f256_state::f256k(machine_config &config)
@@ -120,8 +108,9 @@ void f256_state::f256k(machine_config &config)
 	m_opl3->add_route(1, "rspeaker", 1.0);
 	m_opl3->add_route(2, "lspeaker", 1.0);
 	m_opl3->add_route(3, "rspeaker", 1.0);
-    m_sid0->add_route(ALL_OUTPUTS, "lspeaker", 1.00);
-    m_sid1->add_route(ALL_OUTPUTS, "rspeaker", 1.00);
+    // The SIDs are very noisy - so they are commented out for now.
+    // m_sid0->add_route(ALL_OUTPUTS, "lspeaker", 1.00);
+    // m_sid1->add_route(ALL_OUTPUTS, "rspeaker", 1.00);
 
 
     //set interrupt handler for the RTC
@@ -512,18 +501,56 @@ void f256_state::mem_w(offs_t offset, u8 data)
                 {
                     case 0:
                         // here we have a number of devices to write
-                        if (adj_addr >= 0xD400 && adj_addr < 0xD580)
+                        if (adj_addr == 0xD001)
                         {
-                            // SID
+                            if ((data & 0x1) != 0 )
+                                m_screen->set_refresh_hz(70);
+                            else
+                                m_screen->set_refresh_hz(60);
+                            m_iopage0->write(0xD001 - 0xC000, data);
+                        }
+                        else if (adj_addr >= 0xD400 && adj_addr < 0xD419)
+                        {
+                            // SID 0
+                            m_sid0->write(adj_addr - 0xD400, data);
 
+                        }
+                        else if (adj_addr >= 0xD500 && adj_addr < 0xD519)
+                        {
+                            // SID 1
+                            m_sid1->write(adj_addr - 0xD500, data);
                         }
                         else if (adj_addr >= 0xD580 && adj_addr < 0xD583)
                         {
                             // OPL3
+                            switch(adj_addr)
+                            {
+                                case 0xD580:
+                                    m_opl3_reg = data;
+                                    break;
+                                case 0xD581:
+                                    m_opl3->write(m_opl3_reg, data);
+                                    break;
+                                case 0xD582:
+                                    m_opl3_reg = 0x100 + data;
+                                    break;
+                            }
                         }
-                        else if (adj_addr >= 0xD600 && adj_addr < 0xD620)
+                        else if (adj_addr == 0xD600)
                         {
                             // PSG
+                            m_sn0->write(data);
+                        }
+                        else if (adj_addr == 0xD608)
+                        {
+                            // PSG
+                            m_sn0->write(data);
+                            m_sn1->write(data);
+                        }
+                        else if (adj_addr == 0xD610)
+                        {
+                            // PSG
+                            m_sn1->write(data);
                         }
                         else if (adj_addr >= 0xD620 && adj_addr < 0xD630)
                         {
@@ -572,7 +599,7 @@ void f256_state::mem_w(offs_t offset, u8 data)
                                         isM_WR = true;
                                         break;
                                     case 0x10: // clear keyboard fifo
-                                        memset(kbFifo, 0, 6);
+                                        memset(kbFifo, 0 , 6);
                                         break;
                                     case 0x20: // clear mouse fifo
                                         memset(msFifo, 0, 3);
@@ -741,16 +768,23 @@ void f256_state::mem_w(offs_t offset, u8 data)
                                     spi_sd_enabled = BIT(data, 0);
                                     break;
                                 case 1:
-                                    logerror("Write SD 1: %02X\n", data);
-                                    m_out_latch = data;
-                                    if (spi_sd_enabled)
+                                    if (m_spi_clock_cycles == 0)
                                     {
-                                        m_spi_clock_cycles = 8;
-                                        m_sdcard->spi_ss_w(spi_sd_enabled);
-                                        if (m_spi_clock_sysclk)
-                                            m_spi_clock->adjust(attotime::from_hz(XTAL(400'000)), 0, attotime::from_hz(XTAL(400'000)));
-                                        else
-                                            m_spi_clock->adjust(attotime::from_hz(XTAL(12'500'000)), 0, attotime::from_hz(XTAL(12'500'000)));
+                                        logerror("Write SD 1: %02X\n", data);
+                                        m_out_latch = data;
+                                        if (spi_sd_enabled)
+                                        {
+                                            m_spi_clock_cycles = 8;
+                                            m_sdcard->spi_ss_w(spi_sd_enabled);
+                                            if (m_spi_clock_sysclk)
+                                                m_spi_clock->adjust(attotime::from_hz(XTAL(400'000)), 0, attotime::from_hz(XTAL(400'000)));
+                                            else
+                                                m_spi_clock->adjust(attotime::from_hz(XTAL(12'500'000)), 0, attotime::from_hz(XTAL(12'500'000)));
+                                        }
+                                    }
+                                    else
+                                    {
+                                        logerror("SD card is busy - refusing to write\n");
                                     }
                                     break;
                             }

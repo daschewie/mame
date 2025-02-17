@@ -152,6 +152,8 @@ private:
 	TIMER_CALLBACK_MEMBER(timer1);
 	emu_timer *m_timer1;
 	void timer1_interrupt_handler(int state);
+
+	uint16_t m_opl3_reg = 0;
 };
 
 #endif // MAME_F256_F256_H
