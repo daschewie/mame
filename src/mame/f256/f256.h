@@ -72,6 +72,7 @@ private:
     void program_map(address_map &map);
 	void data_map(address_map &map);
 
+	uint8_t m_mmu_reg, m_ioreg;
 	uint8_t mmu_lut[32];
 	void reset_mmu();
 	u8   lut_r(offs_t offset);

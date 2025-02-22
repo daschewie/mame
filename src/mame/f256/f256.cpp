@@ -120,7 +120,9 @@ void f256_state::f256k(machine_config &config)
     SPI_SDCARD(config, m_sdcard, 0);
 	m_sdcard->set_prefer_sdhc();
     m_sdcard->spi_miso_callback().set([this](int state) {
-        m_in_bit = state;
+        //m_in_bit = state;
+        m_in_latch <<= 1;
+        m_in_latch |= state;
     });
 }
 
@@ -152,45 +154,59 @@ void f256_state::data_map(address_map &map)
 
 u8   f256_state::lut_r(offs_t offset)
 {
-    // addresses 0 to 7 are always read from RAM
-    if (offset < 8)
+    // addresses 2 to 7 are always read from RAM
+    if (offset == 0)
+    {
+        return m_mmu_reg;
+    }
+    else if (offset == 1)
+    {
+        return m_ioreg;
+    }
+    else if (offset < 8)
     {
         return m_ram->read(offset);
     }
     else
     {
-        uint8_t mmu = m_ram->read(0);
         // if we are not in edit mode, return RAM data
-        if ((mmu & 0x80) == 0)
+        if ((m_mmu_reg & 0x80) != 0)
         {
-            return m_ram->read(offset);
+            uint8_t mmu = (m_mmu_reg >> 4) & 0x3;  // use the top nibble
+            return mmu_lut[(mmu & 0x3) * 8 + (offset-8)];
         }
         else
         {
-            mmu = (mmu >> 4) & 0x3;  // use the top nibble
-            return mmu_lut[(mmu & 0x3) * 8 + (offset-8)];
+            return m_ram->read(offset);
         }
     }
 }
 void f256_state::lut_w(offs_t offset, u8 data)
 {
-    // addresses 0:7 are always RAM
-    if (offset < 8)
+    // addresses 2:7 are always RAM
+    if (offset == 0)
+    {
+        m_mmu_reg = data;
+    }
+    else if (offset == 1)
+    {
+        m_ioreg = data;
+    }
+    else if (offset < 8)
     {
         m_ram->write(offset, data);
     }
     else
     {
-        u8 mmu = m_ram->read(0);
-        if ((mmu & 0x80) == 0)
+        // bit 7 of mmu0 determines if the MMU is writable
+        if ((m_mmu_reg & 0x80) == 0)
         {
             m_ram->write(offset, data);
         }
         else
         {
-            mmu = (mmu >> 4) & 0x3;  // use the top nibble
+            uint8_t mmu = (m_mmu_reg >> 4) & 0x3;  // use the top nibble
             mmu_lut[mmu * 8 + (offset - 8)] = data;
-            // TODO: do the bank switching here???
         }
     }
 }
@@ -199,281 +215,277 @@ void f256_state::lut_w(offs_t offset, u8 data)
 u8   f256_state::mem_r(offs_t offset)
 {
     // find which slot to read
-    uint8_t mmu = m_ram->read(0) & 3;
+    uint8_t mmu = m_mmu_reg & 3;
     uint16_t adj_addr = offset + 0x10;
     uint8_t slot = adj_addr >> 13;
-    uint16_t laddr = adj_addr & 0x1FFF;
+    uint16_t low_addr = adj_addr & 0x1FFF;
     uint8_t fslot = mmu_lut[mmu * 8 + slot];
+    // fslot < 0x40 is RAM, greater is FLASH/ROM
     if (fslot < 0x40)
     {
         // Slot 6 is where I/O devices are located, when IO_DISABLE is 0
-        if (slot == 6)
+        if (slot == 6 && (m_ioreg & 0x4) == 0)
         {
-            uint8_t ioreg = m_ram->read(1);
-            // if IO_DISABLED is 1, then slot 6 is regular RAM
-            if ((ioreg & 0x4) == 0)
+            switch (m_ioreg & 0x3)
             {
-                switch (ioreg & 0x3)
-                {
-                    case 0:
-                        // here we have a number of devices to read
-                        if (adj_addr >= 0xD400 && adj_addr < 0xD580)
+                case 0:
+                    // here we have a number of devices to read
+                    if (adj_addr >= 0xD400 && adj_addr < 0xD580)
+                    {
+                        // SID
+                        logerror("SID access?");
+                    }
+                    else if (adj_addr >= 0xD580 && adj_addr < 0xD583)
+                    {
+                        // OPL3
+                        logerror("OPL3 access?");
+                    }
+                    else if (adj_addr >= 0xD600 && adj_addr < 0xD620)
+                    {
+                        // PSG - left channel D600, right channel D610 - both D608
+                        logerror("PSG access?");
+                    }
+                    else if (adj_addr >= 0xD620 && adj_addr < 0xD630)
+                    {
+                        uint16_t base = adj_addr - 0xD620;
+                        return m_codec[base];
+                    }
+                    else if (adj_addr >= 0xD630 && adj_addr < 0xD640)
+                    {
+                        // UART
+                        logerror("UART access?");
+                    }
+                    else if (adj_addr >= 0xD640 && adj_addr < 0xD64F)
+                    {
+                        // PS2
+                        switch(adj_addr - 0xD640)
                         {
-                            // SID
-                            logerror("SID access?");
-                        }
-                        else if (adj_addr >= 0xD580 && adj_addr < 0xD583)
-                        {
-                            // OPL3
-                            logerror("OPL3 access?");
-                        }
-                        else if (adj_addr >= 0xD600 && adj_addr < 0xD620)
-                        {
-                            // PSG - left channel D600, right channel D610 - both D608
-                            logerror("PSG access?");
-                        }
-                        else if (adj_addr >= 0xD620 && adj_addr < 0xD630)
-                        {
-                            uint16_t base = adj_addr - 0xD620;
-                            return m_codec[base];
-                        }
-                        else if (adj_addr >= 0xD630 && adj_addr < 0xD640)
-                        {
-                            // UART
-                            logerror("UART access?");
-                        }
-                        else if (adj_addr >= 0xD640 && adj_addr < 0xD64F)
-                        {
-                            // PS2
-                            switch(adj_addr - 0xD640)
+                            case 0:
+                            case 1:
+                                return m_ps2[adj_addr - 0xD640];
+                            case 2:
                             {
-                                case 0:
-                                case 1:
-                                    return m_ps2[adj_addr - 0xD640];
-                                case 2:
+                                // Read from the keyboard fifo
+                                if (kbPacketCntr > kbQLen)
                                 {
-                                    // Read from the keyboard fifo
-                                    if (kbPacketCntr > kbQLen)
-                                    {
-                                        return 0;
-                                    }
-                                    uint8_t kbval = kbFifo[kbPacketCntr++];
-                                    if (kbPacketCntr == kbQLen)
-                                    {
-                                        kbPacketCntr = 0;
-                                        kbQLen = 0;
-                                        memset(kbFifo, 0, 6);
-                                    }
-                                    return kbval;
+                                    return 0;
                                 }
-                                case 3:
+                                uint8_t kbval = kbFifo[kbPacketCntr++];
+                                if (kbPacketCntr == kbQLen)
                                 {
-                                    // Read from the mouse fifo
-                                    if (msPacketCntr> msQLen)
-                                    {
-                                        return 0;
-                                    }
-                                    uint8_t msval = msFifo[msPacketCntr++];
-                                    if (msPacketCntr == msQLen)
-                                    {
-                                        msPacketCntr = 0;
-                                        msQLen = 0;
-                                        memset(msFifo, 0, 3);
-                                    }
-                                    return msval;
+                                    kbPacketCntr = 0;
+                                    kbQLen = 0;
+                                    memset(kbFifo, 0, 6);
                                 }
-                                case 4:
-                                    K_AK = false;
-                                    M_AK = false;
-                                    return ((K_AK ? 0x80:0) + (M_AK ? 0x20 : 0) + (msQLen == 0 ? 2 : 0) + (kbQLen == 0? 1 : 0));
+                                return kbval;
                             }
-
-                            return m_ps2[adj_addr - 0xD640];
-                        }
-                        else if (adj_addr >= 0xD650 && adj_addr < 0xD660)
-                        {
-                            // Timers
-                            switch (adj_addr)
+                            case 3:
                             {
-                                case 0xD650:
-                                    return m_timer0_eq;
-                                case 0xD651:
-                                    return m_timer0_val & 0xFF;
-                                case 0xD652:
-                                    return (m_timer0_val >> 8) & 0xFF;
-                                case 0xD653:
-                                    return (m_timer0_val >> 16) & 0xFF;
-                                case 0xD658:
-                                    return m_timer1_eq;
-                                case 0xD659:
-                                    return m_timer1_val & 0xFF;
-                                case 0xD65A:
-                                    return (m_timer1_val >> 8) & 0xFF;
-                                case 0xD65B:
-                                    return (m_timer1_val >> 16) & 0xFF;
-                            }
-                            return m_iopage0->read(adj_addr - 0xC000);
-                        }
-                        else if (adj_addr >= 0xD660 && adj_addr < 0xD670)
-                        {
-                            // Interrupt Registers
-                            switch (adj_addr)
-                            {
-                                case 0xD660:
-                                    return m_interrupt_reg[0]; // int_pending_0
-                                case 0xD661:
-                                    return m_interrupt_reg[1]; // int_pending_1
-                                case 0xD662:
-                                    return m_interrupt_reg[2]; // int_pending_2
-                                case 0xD663:
-                                    return 0;
-                                case 0xD664:
-                                    return 0; // int_polarity_0
-                                case 0xD665:
-                                    return 0; // int_polarity_1
-                                case 0xD666:
-                                    return 0; // int_polarity_2
-                                case 0xD667:
-                                    return 0;
-                                case 0xD668:
-                                    return m_interrupt_edge[0]; // int_edge_0
-                                case 0xD669:
-                                    return m_interrupt_edge[1]; // int_edge_1
-                                case 0xD66A:
-                                    return m_interrupt_edge[2]; // int_edge_2
-                                case 0xD66B:
-                                    return 0;
-                                case 0xD66C:
-                                    return m_interrupt_masks[0];
-                                case 0xD66D:
-                                    return m_interrupt_masks[1];
-                                case 0xD66E:
-                                    return m_interrupt_masks[2];
-                                case 0xD66F:
-                                    return 0;
-
-                            }
-                        }
-                        else if (adj_addr >= 0xD690 && adj_addr < 0xD6A0)
-                        {
-                            // RTC
-                            return m_rtc->read(adj_addr - 0xDC90);
-                        }
-                        else if (adj_addr >= 0xD6A0 && adj_addr < 0xD6C0)
-                        {
-                            // System Control Registers
-                            // D6A0 - buzzer and LED controls - including RESET bit
-                            // D6A1 -
-                            // D6A2 - Set to 0xDE to enable software reset
-                            // D6A3 - Set to 0xAD to enable software reset
-                            // D6A4 - D6A6 : Random Number generator
-                            // D6A7 - Macine ID - For the F256, the machine ID will be 0x02. For the F256k, the machine ID will be 0x12.
-                            switch (adj_addr){
-                                case 0xD6A0:
-                                    return m_sdcard->get_card_present() ? 0x10:0;
-                                case 0xD6A7:
-                                    return 0x12;
-                                case 0XD6A8:
-                                    return 'A';
-                                case 0XD6A9:
-                                    return '0';
-                                case 0XD6AA:
-                                    return 1;
-                                case 0XD6AB:
-                                    return 1;
-                                case 0XD6AC:
-                                    return 0;
-                                case 0XD6AD:
-                                    return 0x14;
-                                case 0XD6AE:
-                                    return 0;
-                                case 0XD6AF:
-                                    return 0;
-                            }
-
-                        }
-                        else if (adj_addr >= 0xD880 && adj_addr < 0xD8C0)
-                        {
-                            // NES
-                            return 0xFF;
-
-                        }
-                        else if (adj_addr >= 0xDB00 && adj_addr < 0xDB10)
-                        {
-                            // VIA1 - Keyboard for F256K
-                            return m_via6522_1->read(adj_addr - 0xDB00);
-
-                        }
-                        else if (adj_addr >= 0xDC00 && adj_addr < 0xDC10)
-                        {
-                            // VIA0 - Atari Joystick
-                            return m_via6522_0->read(adj_addr - 0xDC00);
-
-                        }
-                        else if (adj_addr >= 0xDD00 && adj_addr < 0xDD20)
-                        {
-                            // SD Card
-                            //m_sdcard->(adj_addr - 0xDD00);
-                            switch (adj_addr)
-                            {
-                                case 0xDD00:
+                                // Read from the mouse fifo
+                                if (msPacketCntr> msQLen)
                                 {
-                                    // bit 7 is the busy state
-                                    u8 spi_reg = (m_spi_clock_cycles > 0 ? 0x80 : 0x00) + (spi_sd_enabled ? 1 : 0); // TODO add clock bits
-                                    logerror("Read SD 0: %02X\n", spi_reg);
-                                    return spi_reg;
+                                    return 0;
                                 }
-                                case 0xDD01:
-                                    logerror("Read SD 1: %02X\n", spi_sd_enabled ? m_in_latch : m_out_latch);
-                                    return m_in_latch;
-                                default:
-                                    return 0xFF;
+                                uint8_t msval = msFifo[msPacketCntr++];
+                                if (msPacketCntr == msQLen)
+                                {
+                                    msPacketCntr = 0;
+                                    msQLen = 0;
+                                    memset(msFifo, 0, 3);
+                                }
+                                return msval;
                             }
+                            case 4:
+                                K_AK = false;
+                                M_AK = false;
+                                return ((K_AK ? 0x80:0) + (M_AK ? 0x20 : 0) + (msQLen == 0 ? 2 : 0) + (kbQLen == 0? 1 : 0));
                         }
-                        else if (adj_addr >= 0xDE00 && adj_addr < 0xDE20)
+
+                        return m_ps2[adj_addr - 0xD640];
+                    }
+                    else if (adj_addr >= 0xD650 && adj_addr < 0xD660)
+                    {
+                        // Timers
+                        switch (adj_addr)
                         {
-                            // Math Coprocessor
-                            return m_iopage0->read(adj_addr - 0xC000);
+                            case 0xD650:
+                                return m_timer0_eq;
+                            case 0xD651:
+                                return m_timer0_val & 0xFF;
+                            case 0xD652:
+                                return (m_timer0_val >> 8) & 0xFF;
+                            case 0xD653:
+                                return (m_timer0_val >> 16) & 0xFF;
+                            case 0xD658:
+                                return m_timer1_eq;
+                            case 0xD659:
+                                return m_timer1_val & 0xFF;
+                            case 0xD65A:
+                                return (m_timer1_val >> 8) & 0xFF;
+                            case 0xD65B:
+                                return (m_timer1_val >> 16) & 0xFF;
                         }
-                        else if (adj_addr >= 0xDF00 && adj_addr < 0xE000)
+                        return m_iopage0->read(adj_addr - 0xC000);
+                    }
+                    else if (adj_addr >= 0xD660 && adj_addr < 0xD670)
+                    {
+                        // Interrupt Registers
+                        switch (adj_addr)
                         {
-                            // DMA
-                            if (adj_addr == 0xDF01)
-                            {
-                                return m_dma_status;
-                            }
-                            else
-                            {
-                                return m_iopage0->read(adj_addr - 0xC000);
-                            }
+                            case 0xD660:
+                                return m_interrupt_reg[0]; // int_pending_0
+                            case 0xD661:
+                                return m_interrupt_reg[1]; // int_pending_1
+                            case 0xD662:
+                                return m_interrupt_reg[2]; // int_pending_2
+                            case 0xD663:
+                                return 0;
+                            case 0xD664:
+                                return 0; // int_polarity_0
+                            case 0xD665:
+                                return 0; // int_polarity_1
+                            case 0xD666:
+                                return 0; // int_polarity_2
+                            case 0xD667:
+                                return 0;
+                            case 0xD668:
+                                return m_interrupt_edge[0]; // int_edge_0
+                            case 0xD669:
+                                return m_interrupt_edge[1]; // int_edge_1
+                            case 0xD66A:
+                                return m_interrupt_edge[2]; // int_edge_2
+                            case 0xD66B:
+                                return 0;
+                            case 0xD66C:
+                                return m_interrupt_masks[0];
+                            case 0xD66D:
+                                return m_interrupt_masks[1];
+                            case 0xD66E:
+                                return m_interrupt_masks[2];
+                            case 0xD66F:
+                                return 0;
+
                         }
-                        // Stick everything else in Vicky
-                            // (adj_addr >= 0xC000 && adj_addr < 0xD400) ||  // gamma, mouse graphics, vicky registers, bitmaps, tiles
-                            // (adj_addr >= 0xD800 && adj_addr < 0xD880) ||  // text colors
-                            // (adj_addr >= 0xD900 && adj_addr < 0xDB00)     // sprite registers
+                    }
+                    else if (adj_addr >= 0xD690 && adj_addr < 0xD6A0)
+                    {
+                        // RTC
+                        return m_rtc->read(adj_addr - 0xDC90);
+                    }
+                    else if (adj_addr >= 0xD6A0 && adj_addr < 0xD6C0)
+                    {
+                        // System Control Registers
+                        // D6A0 - buzzer and LED controls - including RESET bit
+                        // D6A1 -
+                        // D6A2 - Set to 0xDE to enable software reset
+                        // D6A3 - Set to 0xAD to enable software reset
+                        // D6A4 - D6A6 : Random Number generator
+                        // D6A7 - Macine ID - For the F256, the machine ID will be 0x02. For the F256k, the machine ID will be 0x12.
+                        switch (adj_addr){
+                            case 0xD6A0:
+                                return m_sdcard->get_card_present() ? 0x10:0;
+                            case 0xD6A7:
+                                return 0x12;
+                            case 0XD6A8:
+                                return 'A';
+                            case 0XD6A9:
+                                return '0';
+                            case 0XD6AA:
+                                return 1;
+                            case 0XD6AB:
+                                return 1;
+                            case 0XD6AC:
+                                return 0;
+                            case 0XD6AD:
+                                return 0x14;
+                            case 0XD6AE:
+                                return 0;
+                            case 0XD6AF:
+                                return 0;
+                        }
+
+                    }
+                    else if (adj_addr >= 0xD880 && adj_addr < 0xD8C0)
+                    {
+                        // NES
+                        return 0xFF;
+
+                    }
+                    else if (adj_addr >= 0xDB00 && adj_addr < 0xDB10)
+                    {
+                        // VIA1 - Keyboard for F256K
+                        return m_via6522_1->read(adj_addr - 0xDB00);
+
+                    }
+                    else if (adj_addr >= 0xDC00 && adj_addr < 0xDC10)
+                    {
+                        // VIA0 - Atari Joystick
+                        return m_via6522_0->read(adj_addr - 0xDC00);
+
+                    }
+                    else if (adj_addr >= 0xDD00 && adj_addr < 0xDD20)
+                    {
+                        // SD Card
+                        //m_sdcard->(adj_addr - 0xDD00);
+                        switch (adj_addr)
+                        {
+                            case 0xDD00:
+                            {
+                                // bit 7 is the busy state
+                                u8 spi_reg = (m_spi_clock_cycles > 0 ? 0x80 : 0x00) + (spi_sd_enabled ? 1 : 0); // TODO add clock bits
+                                logerror("Read SD 0: %02X\n", spi_reg);
+                                return spi_reg;
+                            }
+                            case 0xDD01:
+                                logerror("Read SD 1: %02X\n", m_in_latch);
+                                return m_in_latch;
+                            default:
+                                return 0xFF;
+                        }
+                    }
+                    else if (adj_addr >= 0xDE00 && adj_addr < 0xDE20)
+                    {
+                        // Math Coprocessor
+                        return m_iopage0->read(adj_addr - 0xC000);
+                    }
+                    else if (adj_addr >= 0xDF00 && adj_addr < 0xE000)
+                    {
+                        // DMA
+                        if (adj_addr == 0xDF01)
+                        {
+                            return m_dma_status;
+                        }
                         else
                         {
                             return m_iopage0->read(adj_addr - 0xC000);
                         }
-                        break;
-                    case 1:
-                        return m_iopage1->read(adj_addr - 0xC000);
-                        break;
-                    case 2:
-                        return m_iopage2->read(adj_addr - 0xC000);
-                        break;
-                    case 3:
-                        return m_iopage3->read(adj_addr - 0xC000);
-                        break;
-                }
+                    }
+                    // Stick everything else in Vicky
+                        // (adj_addr >= 0xC000 && adj_addr < 0xD400) ||  // gamma, mouse graphics, vicky registers, bitmaps, tiles
+                        // (adj_addr >= 0xD800 && adj_addr < 0xD880) ||  // text colors
+                        // (adj_addr >= 0xD900 && adj_addr < 0xDB00)     // sprite registers
+                    else
+                    {
+                        return m_iopage0->read(adj_addr - 0xC000);
+                    }
+                    break;
+                case 1:
+                    return m_iopage1->read(adj_addr - 0xC000);
+                    break;
+                case 2:
+                    return m_iopage2->read(adj_addr - 0xC000);
+                    break;
+                case 3:
+                    return m_iopage3->read(adj_addr - 0xC000);
+                    break;
             }
         }
-        offs_t address = (fslot << 13) + laddr;
+        offs_t address = (fslot << 13) + low_addr;
         return m_ram->read(address);
     }
     else
     {
-        offs_t address = (fslot << 13) + laddr;
+        offs_t address = (fslot << 13) + low_addr;
         return m_rom->as_u8(address );
     }
 
@@ -481,10 +493,10 @@ u8   f256_state::mem_r(offs_t offset)
 void f256_state::mem_w(offs_t offset, u8 data)
 {
     // find which slot to write
-    uint8_t mmu = m_ram->read(0) & 3;
+    uint8_t mmu = m_mmu_reg & 3;
     uint16_t adj_addr = offset + 0x10;
     uint8_t slot = adj_addr >> 13;
-    uint16_t laddr = adj_addr & 0x1FFF;
+    uint16_t low_addr = adj_addr & 0x1FFF;
     uint8_t old, combo;
 
     uint8_t fslot = mmu_lut[mmu * 8 + slot];
@@ -493,11 +505,10 @@ void f256_state::mem_w(offs_t offset, u8 data)
         // Slot 6 is where I/O devices are located, when IO_DISABLE is 0
         if (slot == 6)
         {
-            uint8_t ioreg = m_ram->read(1);
             // if IO_DISABLED is 1, then slot 6 is regular RAM
-            if ((ioreg & 0x4) == 0)
+            if ((m_ioreg & 0x4) == 0)
             {
-                switch (ioreg & 0x3)
+                switch (m_ioreg & 0x3)
                 {
                     case 0:
                         // here we have a number of devices to write
@@ -660,7 +671,6 @@ void f256_state::mem_w(offs_t offset, u8 data)
                         }
                         else if (adj_addr >= 0xD660 && adj_addr < 0xD670)
                         {
-                            // Interrupt Registers
                             // Interrupt Registers
                             switch (adj_addr)
                             {
@@ -880,10 +890,15 @@ void f256_state::mem_w(offs_t offset, u8 data)
                         break;
                 }
             }
+            else
+            {
+                offs_t address = (fslot << 13) + low_addr;
+                m_ram->write(address, data);
+            }
         }
         else
         {
-            offs_t address = (fslot << 13) + laddr;
+            offs_t address = (fslot << 13) + low_addr;
             m_ram->write(address, data);
         }
     }
@@ -1139,9 +1154,9 @@ TIMER_CALLBACK_MEMBER(f256_state::spi_clock)
 
 		if (m_spi_clock_state)
 		{
-			m_in_latch <<= 1;
-			m_in_latch &= ~0x01;
-			m_in_latch |= m_in_bit;
+			//m_in_latch <<= 1;
+			//m_in_latch &= ~0x01;
+			//m_in_latch |= m_in_bit;
             //logerror("\tSD TIMER event: %d, in: %02X\n", m_spi_clock_cycles, m_in_latch);
 			m_sdcard->spi_clock_w(1);
 			m_spi_clock_cycles--;
@@ -1153,7 +1168,7 @@ TIMER_CALLBACK_MEMBER(f256_state::spi_clock)
             //logerror("\tSD TIMER event: %d, out: %02X\n", m_spi_clock_cycles, BIT(m_out_latch, 7));
 			m_out_latch <<= 1;
 		}
-
+        // toggle the clock signal
 		m_spi_clock_state = !m_spi_clock_state;
 	}
 	else
