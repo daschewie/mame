@@ -390,16 +390,15 @@ endif
 
 ifeq ($(findstring arm,$(UNAME)),arm)
 ARCHITECTURE :=
-ifndef FORCE_DRC_C_BACKEND
-	FORCE_DRC_C_BACKEND := 1
+ifneq ($(PLATFORM),arm64)
+	ifndef FORCE_DRC_C_BACKEND
+		FORCE_DRC_C_BACKEND := 1
+	endif
 endif
 endif
 
 ifeq ($(findstring aarch64,$(UNAME)),aarch64)
 ARCHITECTURE :=
-ifndef FORCE_DRC_C_BACKEND
-	FORCE_DRC_C_BACKEND := 1
-endif
 endif
 
 ifeq ($(findstring s390x,$(UNAME)),s390x)
@@ -1573,7 +1572,7 @@ endif
 
 ifeq (posix,$(SHELLTYPE))
 $(GENDIR)/version.cpp: makefile $(GENDIR)/git_desc | $(GEN_FOLDERS)
-	@echo '#define BARE_BUILD_VERSION "0.273"' > $@
+	@echo '#define BARE_BUILD_VERSION "0.274"' > $@
 	@echo '#define BARE_VCS_REVISION "$(NEW_GIT_VERSION)"' >> $@
 	@echo 'extern const char bare_build_version[];' >> $@
 	@echo 'extern const char bare_vcs_revision[];' >> $@
@@ -1583,7 +1582,7 @@ $(GENDIR)/version.cpp: makefile $(GENDIR)/git_desc | $(GEN_FOLDERS)
 	@echo 'const char build_version[] = BARE_BUILD_VERSION " (" BARE_VCS_REVISION ")";' >> $@
 else
 $(GENDIR)/version.cpp: makefile $(GENDIR)/git_desc | $(GEN_FOLDERS)
-	@echo #define BARE_BUILD_VERSION "0.273" > $@
+	@echo #define BARE_BUILD_VERSION "0.274" > $@
 	@echo #define BARE_VCS_REVISION "$(NEW_GIT_VERSION)" >> $@
 	@echo extern const char bare_build_version[]; >> $@
 	@echo extern const char bare_vcs_revision[]; >> $@
@@ -1681,7 +1680,6 @@ CPPCHECK_PARAMS += -I3rdparty/bx/include
 CPPCHECK_PARAMS += -I$(BUILDDIR)/generated/emu
 CPPCHECK_PARAMS += -I$(BUILDDIR)/generated/emu/layout
 CPPCHECK_PARAMS += -I$(BUILDDIR)/generated/mame/layout
-CPPCHECK_PARAMS += -DX64_WINDOWS_ABI
 CPPCHECK_PARAMS += -DPTR64=1
 CPPCHECK_PARAMS += -DMAME_DEBUG
 CPPCHECK_PARAMS += -DMAME_PROFILER

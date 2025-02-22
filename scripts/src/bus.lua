@@ -1513,6 +1513,8 @@ if (BUSES["HPDIO"]~=null) then
 		MAME_DIR .. "src/devices/bus/hp_dio/hp98620.h",
 		MAME_DIR .. "src/devices/bus/hp_dio/hp98624.cpp",
 		MAME_DIR .. "src/devices/bus/hp_dio/hp98624.h",
+		MAME_DIR .. "src/devices/bus/hp_dio/hp98628_9.cpp",
+		MAME_DIR .. "src/devices/bus/hp_dio/hp98628_9.h",
 		MAME_DIR .. "src/devices/bus/hp_dio/hp98643.cpp",
 		MAME_DIR .. "src/devices/bus/hp_dio/hp98643.h",
 		MAME_DIR .. "src/devices/bus/hp_dio/hp98644.cpp",
@@ -1848,6 +1850,8 @@ if (BUSES["ISA"]~=null) then
 		MAME_DIR .. "src/devices/bus/isa/pds.h",
 		MAME_DIR .. "src/devices/bus/isa/pgc.cpp",
 		MAME_DIR .. "src/devices/bus/isa/pgc.h",
+		MAME_DIR .. "src/devices/bus/isa/prose4k1.cpp",
+		MAME_DIR .. "src/devices/bus/isa/prose4k1.h",
 		MAME_DIR .. "src/devices/bus/isa/sb16.cpp",
 		MAME_DIR .. "src/devices/bus/isa/sb16.h",
 		MAME_DIR .. "src/devices/bus/isa/sblaster.cpp",
@@ -3280,6 +3284,8 @@ end
 
 if (BUSES["CENTRONICS"]~=null) then
 	files {
+		MAME_DIR .. "src/devices/bus/centronics/adaptator.cpp",
+		MAME_DIR .. "src/devices/bus/centronics/adaptator.h",
 		MAME_DIR .. "src/devices/bus/centronics/ctronics.cpp",
 		MAME_DIR .. "src/devices/bus/centronics/ctronics.h",
 		MAME_DIR .. "src/devices/bus/centronics/chessmec.cpp",
@@ -3298,6 +3304,8 @@ if (BUSES["CENTRONICS"]~=null) then
 		MAME_DIR .. "src/devices/bus/centronics/epson_lx800.h",
 		MAME_DIR .. "src/devices/bus/centronics/epson_lx810l.cpp",
 		MAME_DIR .. "src/devices/bus/centronics/epson_lx810l.h",
+		MAME_DIR .. "src/devices/bus/centronics/epson_rx80.cpp",
+		MAME_DIR .. "src/devices/bus/centronics/epson_rx80.h",
 		MAME_DIR .. "src/devices/bus/centronics/nec_p72.cpp",
 		MAME_DIR .. "src/devices/bus/centronics/nec_p72.h",
 		MAME_DIR .. "src/devices/bus/centronics/nlq401.cpp",
@@ -4688,14 +4696,16 @@ if (BUSES["ZORRO"]~=null) then
 		MAME_DIR .. "src/devices/bus/amiga/zorro/a2058.h",
 		MAME_DIR .. "src/devices/bus/amiga/zorro/a2065.cpp",
 		MAME_DIR .. "src/devices/bus/amiga/zorro/a2065.h",
+		MAME_DIR .. "src/devices/bus/amiga/zorro/a2091.cpp",
+		MAME_DIR .. "src/devices/bus/amiga/zorro/a2091.h",
 		MAME_DIR .. "src/devices/bus/amiga/zorro/a2232.cpp",
 		MAME_DIR .. "src/devices/bus/amiga/zorro/a2232.h",
-		MAME_DIR .. "src/devices/bus/amiga/zorro/a590.cpp",
-		MAME_DIR .. "src/devices/bus/amiga/zorro/a590.h",
-		MAME_DIR .. "src/devices/bus/amiga/zorro/action_replay.cpp",
-		MAME_DIR .. "src/devices/bus/amiga/zorro/action_replay.h",
 		MAME_DIR .. "src/devices/bus/amiga/zorro/buddha.cpp",
 		MAME_DIR .. "src/devices/bus/amiga/zorro/buddha.h",
+		MAME_DIR .. "src/devices/bus/amiga/zorro/merlin.cpp",
+		MAME_DIR .. "src/devices/bus/amiga/zorro/merlin.h",
+		MAME_DIR .. "src/devices/bus/amiga/zorro/oktagon2008.cpp",
+		MAME_DIR .. "src/devices/bus/amiga/zorro/oktagon2008.h",
 		MAME_DIR .. "src/devices/bus/amiga/zorro/picasso2.cpp",
 		MAME_DIR .. "src/devices/bus/amiga/zorro/picasso2.h",
 		MAME_DIR .. "src/devices/bus/amiga/zorro/rainbow2.cpp",
@@ -4782,6 +4792,8 @@ if (BUSES["QBUS"]~=null) then
 		MAME_DIR .. "src/devices/bus/qbus/qg640.h",
 		MAME_DIR .. "src/devices/bus/qbus/qtx.cpp",
 		MAME_DIR .. "src/devices/bus/qbus/qtx.h",
+		MAME_DIR .. "src/devices/bus/qbus/tdl12.cpp",
+		MAME_DIR .. "src/devices/bus/qbus/tdl12.h",
 		MAME_DIR .. "src/devices/bus/qbus/uknc_kmd.cpp",
 		MAME_DIR .. "src/devices/bus/qbus/uknc_kmd.h",
 	}
@@ -5767,8 +5779,6 @@ end
 
 if (BUSES["H89BUS"]~=null) then
 	files {
-		MAME_DIR .. "src/devices/bus/heathzenith/h89/cards.cpp",
-		MAME_DIR .. "src/devices/bus/heathzenith/h89/cards.h",
 		MAME_DIR .. "src/devices/bus/heathzenith/h89/cdr_fdc_880h.cpp",
 		MAME_DIR .. "src/devices/bus/heathzenith/h89/cdr_fdc_880h.h",
 		MAME_DIR .. "src/devices/bus/heathzenith/h89/h89bus.cpp",
@@ -5796,6 +5806,18 @@ end
 
 ---------------------------------------------------
 --
+--@src/devices/bus/heathzenith/h89/intr_cntrl.h,BUSES["HEATH_INTR_SOCKET"] = true
+---------------------------------------------------
+
+if (BUSES["HEATH_INTR_SOCKET"]~=null) then
+	files {
+		MAME_DIR .. "src/devices/bus/heathzenith/h89/intr_cntrl.cpp",
+		MAME_DIR .. "src/devices/bus/heathzenith/h89/intr_cntrl.h",
+	}
+end
+
+---------------------------------------------------
+--
 --@src/devices/bus/heathzenith/h19/tlb.h,BUSES["HEATH_TLB_CONNECTOR"] = true
 ---------------------------------------------------
 
@@ -5803,5 +5825,27 @@ if (BUSES["HEATH_TLB_CONNECTOR"]~=null) then
 	files {
 		MAME_DIR .. "src/devices/bus/heathzenith/h19/tlb.cpp",
 		MAME_DIR .. "src/devices/bus/heathzenith/h19/tlb.h",
+	}
+end
+
+---------------------------------------------------
+--
+--@src/devices/bus/amiga/cpuslot/cpuslot.h,BUSES["AMIGA_CPUSLOT"] = true
+---------------------------------------------------
+
+if (BUSES["AMIGA_CPUSLOT"]~=null) then
+	files {
+		MAME_DIR .. "src/devices/bus/amiga/cpuslot/cpuslot.cpp",
+		MAME_DIR .. "src/devices/bus/amiga/cpuslot/cpuslot.h",
+		MAME_DIR .. "src/devices/bus/amiga/cpuslot/cards.cpp",
+		MAME_DIR .. "src/devices/bus/amiga/cpuslot/cards.h",
+		MAME_DIR .. "src/devices/bus/amiga/cpuslot/a570.cpp",
+		MAME_DIR .. "src/devices/bus/amiga/cpuslot/a570.h",
+		MAME_DIR .. "src/devices/bus/amiga/cpuslot/a590.cpp",
+		MAME_DIR .. "src/devices/bus/amiga/cpuslot/a590.h",
+		MAME_DIR .. "src/devices/bus/amiga/cpuslot/action_replay.cpp",
+		MAME_DIR .. "src/devices/bus/amiga/cpuslot/action_replay.h",
+		MAME_DIR .. "src/devices/bus/amiga/cpuslot/megamix500.cpp",
+		MAME_DIR .. "src/devices/bus/amiga/cpuslot/megamix500.h",
 	}
 end
