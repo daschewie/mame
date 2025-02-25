@@ -16,6 +16,7 @@
 #include "machine/spi_sdcard.h"
 
 #define MASTER_CLOCK        (XTAL(25'175'000))
+#define MUSIC_CLOCK         (XTAL(14'318'181))
 #define MAINCPU_TAG                 "maincpu"
 #define RAM_TAG                     "ram"
 #define IOPAGE0_TAG                 "iopage0"
@@ -82,6 +83,7 @@ private:
 
 	// screen update
 	void sof_interrtupt(int state);
+	void sol_interrtupt(int state);
 	void rtc_interrupt_handler(int state);
 	void via0_interrupt(int state);
 	void via1_interrupt(int state);
@@ -132,9 +134,18 @@ private:
 	void write_sd_data(u8 data);
 
 	// Math Copro
+	uint32_t m_multiplication_result = 0;
+	uint32_t m_addition_result = 0;
+	uint16_t m_division_result = 0;
+	uint16_t m_division_remainder = 0;
 	void unsignedMultiplier(int baseAddr);
 	void unsignedDivider(int baseAddr);
 	void unsignedAdder(int baseAddr);
+
+	// Random Number Generator (RNG)
+	uint16_t m_seed = 0;
+	bool m_rng_enabled = false;
+	uint8_t get_random();
 
 	// DMA
 	uint8_t m_dma_status = 0;
