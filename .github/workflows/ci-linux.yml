@@ -39,8 +39,8 @@ jobs:
           - compiler: clang
             cc: clang
             cxx: clang++
-            subtarget: mame
-            executable: mame
+            subtarget: f256
+            executable: f256
     steps:
     - uses: actions/checkout@main
       with:
